@@ -1,4 +1,5 @@
 ﻿/****** Object:  StoredProcedure [dbo].[sp_kardexAlmacenPM]    Script Date: 7/01/2026 23:24:19 ******/
+-- Fix: Corregir cálculo de saldo inicial cuando FechaDesde es último día del mes sin histórico
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -402,6 +403,11 @@ BEGIN
         DECLARE @MesProximo INT
         DECLARE @AnioProximo INT
 
+        -- NUEVAS VARIABLES para cálculo de saldo intermedio
+        DECLARE @RequiereCalculoSaldoIntermedio BIT = 0
+        DECLARE @FechaInicioCalculoSaldo VARCHAR(50)
+        DECLARE @FechaFinCalculoSaldo VARCHAR(50)
+
         SET @FechaDesdeOriginal = @FechaDesde
 
         PRINT '=========================================='
@@ -632,23 +638,57 @@ BEGIN
             SET @Anio = @MaxAnio
             SET @ExisteHistorico = 0
 
-            SET @PrimerDiaMes = CAST(
-                CAST(@Anio AS VARCHAR(4)) + '-' + 
-                RIGHT('0' + CAST(@Mes AS VARCHAR(2)), 2) + '-01 00:00:00' 
-                AS DATETIME
-            )
-            
-            SET @FechaDesde = 
-                CONVERT(VARCHAR(4), YEAR(@PrimerDiaMes)) +
-                RIGHT('0' + CONVERT(VARCHAR(2), MONTH(@PrimerDiaMes)), 2) +
-                '010000'
-            
-            PRINT '>>> RESULTADO: NO EXISTE <<<'
-            PRINT 'No se encontró el periodo ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
-            PRINT 'DECISIÓN: Se usará el último mes del histórico'
-            PRINT '  Mes Seleccionado: ' + CAST(@Mes AS VARCHAR)
-            PRINT '  Año Seleccionado: ' + CAST(@Anio AS VARCHAR)
-            PRINT '  FechaDesde: AJUSTADA al día 1 del último mes disponible'
+            -- NUEVA LÓGICA: Si es TIPO 2, SIEMPRE calcular saldo intermedio (para cualquier fecha)
+            IF @tipo = 2
+            BEGIN
+                SET @RequiereCalculoSaldoIntermedio = 1
+                -- NO modificar @FechaDesde - mantener la fecha original del usuario
+
+                -- Guardar el rango de fechas para calcular el saldo intermedio
+                -- Desde el primer día del mes del histórico hasta el día anterior a FechaDesde
+                SET @FechaInicioCalculoSaldo =
+                    CONVERT(VARCHAR(4), @MaxAnio) +
+                    RIGHT('0' + CONVERT(VARCHAR(2), @MaxMes), 2) +
+                    '010000'
+
+                -- FechaFinCalculoSaldo = día anterior a la fecha original del usuario
+                DECLARE @FechaAnterior DATETIME = DATEADD(DAY, -1, @FechaReferenciaDate)
+                SET @FechaFinCalculoSaldo =
+                    CONVERT(VARCHAR(4), YEAR(@FechaAnterior)) +
+                    RIGHT('0' + CONVERT(VARCHAR(2), MONTH(@FechaAnterior)), 2) +
+                    RIGHT('0' + CONVERT(VARCHAR(2), DAY(@FechaAnterior)), 2) +
+                    '2359'
+
+                PRINT '>>> RESULTADO: NO EXISTE - TIPO 2 CÁLCULO INTERMEDIO <<<'
+                PRINT 'No se encontró el periodo ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
+                PRINT 'DECISIÓN: Es TIPO 2 - Se calculará saldo hasta la fecha solicitada'
+                PRINT '  Se usará histórico de: ' + CAST(@MaxAnio AS VARCHAR) + '-' + RIGHT('0' + CAST(@MaxMes AS VARCHAR), 2)
+                PRINT '  FechaDesde: SE MANTIENE ORIGINAL (no se modifica)'
+                PRINT '  RequiereCalculoSaldoIntermedio: SÍ'
+                PRINT '  FechaInicioCalculoSaldo: ' + @FechaInicioCalculoSaldo
+                PRINT '  FechaFinCalculoSaldo: ' + @FechaFinCalculoSaldo
+            END
+            ELSE
+            BEGIN
+                -- Comportamiento original para TIPO 3
+                SET @PrimerDiaMes = CAST(
+                    CAST(@Anio AS VARCHAR(4)) + '-' +
+                    RIGHT('0' + CAST(@Mes AS VARCHAR(2)), 2) + '-01 00:00:00'
+                    AS DATETIME
+                )
+
+                SET @FechaDesde =
+                    CONVERT(VARCHAR(4), YEAR(@PrimerDiaMes)) +
+                    RIGHT('0' + CONVERT(VARCHAR(2), MONTH(@PrimerDiaMes)), 2) +
+                    '010000'
+
+                PRINT '>>> RESULTADO: NO EXISTE <<<'
+                PRINT 'No se encontró el periodo ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
+                PRINT 'DECISIÓN: Se usará el último mes del histórico'
+                PRINT '  Mes Seleccionado: ' + CAST(@Mes AS VARCHAR)
+                PRINT '  Año Seleccionado: ' + CAST(@Anio AS VARCHAR)
+                PRINT '  FechaDesde: AJUSTADA al día 1 del último mes disponible'
+            END
         END
         PRINT ''
 
@@ -755,127 +795,284 @@ BEGIN
             PRINT ''
         END
         
-        PRINT '>>> EJECUTANDO PROCEDIMIENTO ALMACENADO <<<'
-        PRINT '=========================================='
-        PRINT 'Parámetros:'
-        PRINT '  @FechaDesde: ' + @FechaDesde
-        PRINT '  @FechaHasta: ' + @FechaHasta
-        PRINT '  @tipo: ' + CAST(@tipo AS VARCHAR)
-        PRINT ''
+        -- =====================================================================
+        -- EJECUCIÓN DEL SP - CON SOPORTE PARA CÁLCULO DE SALDO INTERMEDIO
+        -- =====================================================================
 
-        -- Cargar datos
-        INSERT INTO #TemporalKardexArticulo1
-        EXEC sp_kardexAlmacenPM_Optimizado1 
-            @FechaDesde,
-            @FechaHasta,
-            @ListaArticulos,
-            @idsucursal,
-            @iddeposito,
-            @tipo
+        IF @RequiereCalculoSaldoIntermedio = 1
+        BEGIN
+            -- ================================================================
+            -- CÁLCULO EN DOS FASES (cuando no existe histórico del mes solicitado)
+            -- ================================================================
+            PRINT '>>> EJECUTANDO CÁLCULO EN DOS FASES <<<'
+            PRINT '=========================================='
 
-        -- Consolidar existencias
-        INSERT INTO #TemporalExistencias1
-        SELECT
-            idproducto,
-            Codigoarticulo,
-            descarticulo, 
-            NombreSucursal,
-            NombreDeposito,
-            SUM(saldoinicial) AS SaldoInicial,
-            CASE 
-                WHEN SUM(saldoInicial) > 0 
-                THEN SUM(saldoInicialvalor) / SUM(saldoInicial) 
-                ELSE 0 
-            END AS pminicial,
-            SUM(saldoInicialvalor) AS SaldoInicialvalor,
-            SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END) AS entrada,
-            CASE 
-                WHEN SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END) > 0 
-                THEN SUM(CASE WHEN idcomprobante != 18 THEN entradavalor ELSE 0 END) / 
-                     SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END) 
-                ELSE 0 
-            END AS pmentrada,
-            SUM(CASE WHEN idcomprobante != 18 THEN entradavalor ELSE 0 END) AS entradavalor,
-            SUM(CASE WHEN idcomprobante = 18 THEN entrada ELSE 0 END) AS entradaTransferencia,
-            CASE 
-                WHEN SUM(CASE WHEN idcomprobante = 18 THEN entrada ELSE 0 END) > 0 
-                THEN SUM(CASE WHEN idcomprobante = 18 THEN entradavalor ELSE 0 END) / 
-                     SUM(CASE WHEN idcomprobante = 18 THEN entrada ELSE 0 END) 
-                ELSE 0 
-            END AS pmentradaTransferencia,
-            SUM(CASE WHEN idcomprobante = 18 THEN entradavalor ELSE 0 END) AS entradavalorTransferencia,
-            SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END) AS salida,
-            CASE 
-                WHEN SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END) > 0 
-                THEN SUM(CASE WHEN idcomprobante != 19 THEN salidavalor ELSE 0 END) / 
-                     SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END) 
-                ELSE 0 
-            END AS pmsalida,
-            SUM(CASE WHEN idcomprobante != 19 THEN salidavalor ELSE 0 END) AS salidavalor,
-            SUM(CASE WHEN idcomprobante = 19 THEN salida ELSE 0 END) AS salidaTransferencia,
-            CASE 
-                WHEN SUM(CASE WHEN idcomprobante = 19 THEN salida ELSE 0 END) > 0 
-                THEN SUM(CASE WHEN idcomprobante = 19 THEN salidavalor ELSE 0 END) / 
-                     SUM(CASE WHEN idcomprobante = 19 THEN salida ELSE 0 END) 
-                ELSE 0 
-            END AS pmsalidaTransferencia,
-            SUM(CASE WHEN idcomprobante = 19 THEN salidavalor ELSE 0 END) AS salidavalorTransferencia,
-            SUM(saldoInicial) + SUM(entrada) - SUM(salida) AS saldo, 
-            CASE 
-                WHEN (SUM(saldoInicial) + SUM(entrada) - SUM(salida)) > 0 
-                THEN (SUM(saldoInicialvalor) + SUM(entradavalor) - SUM(salidavalor)) / 
-                     (SUM(saldoInicial) + SUM(entrada) - SUM(salida)) 
-                ELSE 0 
-            END AS pmsaldo,
-            SUM(saldoInicialvalor) + SUM(entradavalor) - SUM(salidavalor) AS saldovalor,
-            CASE 
-                WHEN SUM(saldoInicial) > 0 
-                THEN SUM(saldoinicialvalorMoneda) / SUM(saldoInicial) 
-                ELSE 0 
-            END AS pminicialMoneda,
-            SUM(saldoinicialvalorMoneda) AS SaldoInicialvalorMoneda, 
-            CASE 
-                WHEN SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END) > 0 
-                THEN SUM(CASE WHEN idcomprobante != 18 THEN entradavalorMoneda ELSE 0 END) / 
-                     SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END) 
-                ELSE 0 
-            END AS pmentradaMoneda,
-            CASE 
-                WHEN SUM(CASE WHEN idcomprobante = 18 THEN entrada ELSE 0 END) > 0 
-                THEN SUM(CASE WHEN idcomprobante = 18 THEN entradavalorMoneda ELSE 0 END) / 
-                     SUM(CASE WHEN idcomprobante = 18 THEN entrada ELSE 0 END) 
-                ELSE 0 
-            END AS pmentradaMonedaTransferencia,
-            SUM(CASE WHEN idcomprobante != 18 THEN entradavalorMoneda ELSE 0 END) AS entradavalorMoneda,
-            SUM(CASE WHEN idcomprobante = 18 THEN entradavalorMoneda ELSE 0 END) AS entradavalorMonedaTransferencia,
-            CASE 
-                WHEN SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END) > 0 
-                THEN SUM(CASE WHEN idcomprobante != 19 THEN salidavalorMoneda ELSE 0 END) / 
-                     SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END) 
-                ELSE 0 
-            END AS pmsalidaMoneda,
-            CASE 
-                WHEN SUM(CASE WHEN idcomprobante = 19 THEN salida ELSE 0 END) > 0 
-                THEN SUM(CASE WHEN idcomprobante = 19 THEN salidavalorMoneda ELSE 0 END) / 
-                     SUM(CASE WHEN idcomprobante = 19 THEN salida ELSE 0 END) 
-                ELSE 0 
-            END AS pmsalidaMonedaTransferencia,
-            SUM(CASE WHEN idcomprobante != 19 THEN salidavalorMoneda ELSE 0 END) AS salidavalorMoneda,
-            SUM(CASE WHEN idcomprobante = 19 THEN salidavalorMoneda ELSE 0 END) AS salidavalorMonedaTransferencia,
-            CASE 
-                WHEN (SUM(saldoInicial) + SUM(entrada) - SUM(salida)) > 0 
-                THEN (SUM(saldoinicialvalorMoneda) + SUM(entradavalorMoneda) - SUM(salidavalorMoneda)) / 
-                     (SUM(saldoInicial) + SUM(entrada) - SUM(salida)) 
-                ELSE 0 
-            END AS pmsaldoMoneda,
-            SUM(saldoInicialvalorMoneda) + SUM(entradavalorMoneda) - SUM(salidavalorMoneda) AS saldovalorMoneda
-        FROM #TemporalKardexArticulo1
-        GROUP BY 
-            Codigoarticulo,
-            descarticulo,
-            NombreSucursal,
-            NombreDeposito,
-            idproducto
+            -- Calcular fecha de inicio: último día del mes del histórico disponible
+            DECLARE @UltimoDiaHistorico DATETIME
+            SET @UltimoDiaHistorico = EOMONTH(CAST(CAST(@MaxAnio AS VARCHAR(4)) + '-' + RIGHT('0' + CAST(@MaxMes AS VARCHAR(2)), 2) + '-01' AS DATE))
+
+            SET @FechaInicioCalculoSaldo =
+                CONVERT(VARCHAR(4), YEAR(@UltimoDiaHistorico)) +
+                RIGHT('0' + CONVERT(VARCHAR(2), MONTH(@UltimoDiaHistorico)), 2) +
+                RIGHT('0' + CONVERT(VARCHAR(2), DAY(@UltimoDiaHistorico)), 2) +
+                '0000'
+
+            -- Fecha fin: la fecha solicitada por el usuario (FechaDesde original)
+            SET @FechaFinCalculoSaldo = @FechaDesdeOriginal
+
+            PRINT 'FASE 1: Calculando saldo inicial'
+            PRINT '  Histórico disponible: ' + CAST(@MaxAnio AS VARCHAR) + '-' + RIGHT('0' + CAST(@MaxMes AS VARCHAR), 2)
+            PRINT '  Desde: ' + @FechaInicioCalculoSaldo + ' (último día histórico)'
+            PRINT '  Hasta: ' + @FechaFinCalculoSaldo + ' (fecha solicitada por usuario)'
+            PRINT ''
+
+            -- FASE 1: Calcular movimientos desde histórico hasta fecha solicitada
+            INSERT INTO #TemporalKardexArticulo2
+            EXEC sp_kardexAlmacenPM_Optimizado1
+                @FechaInicioCalculoSaldo,
+                @FechaFinCalculoSaldo,
+                @ListaArticulos,
+                @idsucursal,
+                @iddeposito,
+                @tipo
+
+            PRINT 'FASE 1 completada. Registros obtenidos: ' + CAST(@@ROWCOUNT AS VARCHAR)
+
+            -- Consolidar para obtener saldo al momento de @FechaDesdeOriginal
+            INSERT INTO #TemporalExistencias2
+            SELECT
+                idproducto,
+                Codigoarticulo,
+                descarticulo,
+                NombreSucursal,
+                NombreDeposito,
+                SUM(saldoinicial) AS SaldoInicial,
+                CASE WHEN SUM(saldoInicial) > 0 THEN SUM(saldoInicialvalor) / SUM(saldoInicial) ELSE 0 END AS pminicial,
+                SUM(saldoInicialvalor) AS SaldoInicialvalor,
+                0 AS entrada, 0 AS pmentrada, 0 AS entradavalor,
+                0 AS entradaTransferencia, 0 AS pmentradaTransferencia, 0 AS entradavalorTransferencia,
+                0 AS salida, 0 AS pmsalida, 0 AS salidavalor,
+                0 AS salidaTransferencia, 0 AS pmsalidaTransferencia, 0 AS salidavalorTransferencia,
+                -- El saldo final de esta fase es el saldo inicial del reporte
+                SUM(saldoInicial) + SUM(entrada) - SUM(salida) AS saldo,
+                CASE WHEN (SUM(saldoInicial) + SUM(entrada) - SUM(salida)) > 0
+                     THEN (SUM(saldoInicialvalor) + SUM(entradavalor) - SUM(salidavalor)) / (SUM(saldoInicial) + SUM(entrada) - SUM(salida))
+                     ELSE 0 END AS pmsaldo,
+                SUM(saldoInicialvalor) + SUM(entradavalor) - SUM(salidavalor) AS saldovalor,
+                -- Moneda extranjera
+                CASE WHEN SUM(saldoInicial) > 0 THEN SUM(saldoinicialvalorMoneda) / SUM(saldoInicial) ELSE 0 END AS pminicialMoneda,
+                SUM(saldoinicialvalorMoneda) AS SaldoInicialvalorMoneda,
+                0 AS pmentradaMoneda, 0 AS pmentradaMonedaTransferencia,
+                0 AS entradavalorMoneda, 0 AS entradavalorMonedaTransferencia,
+                0 AS pmsalidaMoneda, 0 AS pmsalidaMonedaTransferencia,
+                0 AS salidavalorMoneda, 0 AS salidavalorMonedaTransferencia,
+                CASE WHEN (SUM(saldoInicial) + SUM(entrada) - SUM(salida)) > 0
+                     THEN (SUM(saldoinicialvalorMoneda) + SUM(entradavalorMoneda) - SUM(salidavalorMoneda)) / (SUM(saldoInicial) + SUM(entrada) - SUM(salida))
+                     ELSE 0 END AS pmsaldoMoneda,
+                SUM(saldoInicialvalorMoneda) + SUM(entradavalorMoneda) - SUM(salidavalorMoneda) AS saldovalorMoneda
+            FROM #TemporalKardexArticulo2
+            GROUP BY idproducto, Codigoarticulo, descarticulo, NombreSucursal, NombreDeposito
+
+            PRINT 'Artículos con saldo inicial calculado: ' + CAST(@@ROWCOUNT AS VARCHAR)
+            PRINT ''
+
+            -- FASE 2: Calcular movimientos del período solicitado
+            PRINT 'FASE 2: Calculando movimientos del período'
+            PRINT '  Desde: ' + @FechaDesdeOriginal
+            PRINT '  Hasta: ' + @FechaHasta
+            PRINT ''
+
+            INSERT INTO #TemporalKardexArticulo1
+            EXEC sp_kardexAlmacenPM_Optimizado1
+                @FechaDesdeOriginal,
+                @FechaHasta,
+                @ListaArticulos,
+                @idsucursal,
+                @iddeposito,
+                @tipo
+
+            PRINT 'FASE 2 completada. Movimientos encontrados: ' + CAST(@@ROWCOUNT AS VARCHAR)
+            PRINT ''
+
+            -- FASE 3: Combinar saldo inicial calculado con movimientos del período
+            PRINT 'FASE 3: Combinando saldo inicial con movimientos del período'
+
+            INSERT INTO #TemporalExistencias3
+            SELECT
+                COALESCE(e1.idproducto, e2.idproducto) AS idproducto,
+                COALESCE(e1.Codigoarticulo, e2.Codigoarticulo) AS Codigoarticulo,
+                COALESCE(e1.descarticulo, e2.descarticulo) AS descarticulo,
+                COALESCE(e1.NombreSucursal, e2.NombreSucursal) AS NombreSucursal,
+                COALESCE(e1.NombreDeposito, e2.NombreDeposito) AS NombreDeposito,
+                -- Saldo inicial viene de Fase 1 (saldo calculado hasta FechaDesde)
+                ISNULL(e2.saldo, 0) AS SaldoInicial,
+                ISNULL(e2.pmsaldo, 0) AS pminicial,
+                ISNULL(e2.saldovalor, 0) AS SaldoInicialvalor,
+                -- Entradas del período
+                ISNULL(e1.entrada, 0) AS entrada,
+                ISNULL(e1.pmentrada, 0) AS pmentrada,
+                ISNULL(e1.entradavalor, 0) AS entradavalor,
+                -- Salidas del período
+                ISNULL(e1.salida, 0) AS salida,
+                ISNULL(e1.pmsalida, 0) AS pmsalida,
+                ISNULL(e1.salidavalor, 0) AS salidavalor,
+                -- Saldo final = Saldo inicial + entradas - salidas
+                ISNULL(e2.saldo, 0) + ISNULL(e1.entrada, 0) - ISNULL(e1.salida, 0) AS saldo,
+                CASE WHEN (ISNULL(e2.saldo, 0) + ISNULL(e1.entrada, 0) - ISNULL(e1.salida, 0)) > 0
+                     THEN (ISNULL(e2.saldovalor, 0) + ISNULL(e1.entradavalor, 0) - ISNULL(e1.salidavalor, 0)) /
+                          (ISNULL(e2.saldo, 0) + ISNULL(e1.entrada, 0) - ISNULL(e1.salida, 0))
+                     ELSE 0 END AS pmsaldo,
+                ISNULL(e2.saldovalor, 0) + ISNULL(e1.entradavalor, 0) - ISNULL(e1.salidavalor, 0) AS saldovalor,
+                -- Moneda extranjera
+                ISNULL(e2.pmsaldoMoneda, 0) AS pminicialMoneda,
+                ISNULL(e2.saldovalorMoneda, 0) AS SaldoInicialvalorMoneda,
+                ISNULL(e1.pmentradaMoneda, 0) AS pmentradaMoneda,
+                ISNULL(e1.entradavalorMoneda, 0) AS entradavalorMoneda,
+                ISNULL(e1.pmsalidaMoneda, 0) AS pmsalidaMoneda,
+                ISNULL(e1.salidavalorMoneda, 0) AS salidavalorMoneda,
+                CASE WHEN (ISNULL(e2.saldo, 0) + ISNULL(e1.entrada, 0) - ISNULL(e1.salida, 0)) > 0
+                     THEN (ISNULL(e2.saldovalorMoneda, 0) + ISNULL(e1.entradavalorMoneda, 0) - ISNULL(e1.salidavalorMoneda, 0)) /
+                          (ISNULL(e2.saldo, 0) + ISNULL(e1.entrada, 0) - ISNULL(e1.salida, 0))
+                     ELSE 0 END AS pmsaldoMoneda,
+                ISNULL(e2.saldovalorMoneda, 0) + ISNULL(e1.entradavalorMoneda, 0) - ISNULL(e1.salidavalorMoneda, 0) AS saldovalorMoneda
+            FROM (
+                -- Movimientos del período solicitado (Fase 2)
+                SELECT
+                    idproducto, Codigoarticulo, descarticulo, NombreSucursal, NombreDeposito,
+                    SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END) AS entrada,
+                    CASE WHEN SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END) > 0
+                         THEN SUM(CASE WHEN idcomprobante != 18 THEN entradavalor ELSE 0 END) / SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END)
+                         ELSE 0 END AS pmentrada,
+                    SUM(CASE WHEN idcomprobante != 18 THEN entradavalor ELSE 0 END) AS entradavalor,
+                    SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END) AS salida,
+                    CASE WHEN SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END) > 0
+                         THEN SUM(CASE WHEN idcomprobante != 19 THEN salidavalor ELSE 0 END) / SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END)
+                         ELSE 0 END AS pmsalida,
+                    SUM(CASE WHEN idcomprobante != 19 THEN salidavalor ELSE 0 END) AS salidavalor,
+                    CASE WHEN SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END) > 0
+                         THEN SUM(CASE WHEN idcomprobante != 18 THEN entradavalorMoneda ELSE 0 END) / SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END)
+                         ELSE 0 END AS pmentradaMoneda,
+                    SUM(CASE WHEN idcomprobante != 18 THEN entradavalorMoneda ELSE 0 END) AS entradavalorMoneda,
+                    CASE WHEN SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END) > 0
+                         THEN SUM(CASE WHEN idcomprobante != 19 THEN salidavalorMoneda ELSE 0 END) / SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END)
+                         ELSE 0 END AS pmsalidaMoneda,
+                    SUM(CASE WHEN idcomprobante != 19 THEN salidavalorMoneda ELSE 0 END) AS salidavalorMoneda
+                FROM #TemporalKardexArticulo1
+                GROUP BY idproducto, Codigoarticulo, descarticulo, NombreSucursal, NombreDeposito
+            ) e1
+            FULL OUTER JOIN #TemporalExistencias2 e2 ON e1.idproducto = e2.idproducto
+
+            PRINT 'FASE 3 completada. Total artículos: ' + CAST(@@ROWCOUNT AS VARCHAR)
+            PRINT ''
+
+            -- Copiar resultado final a #TemporalExistencias1 para el resto del proceso
+            INSERT INTO #TemporalExistencias1
+            SELECT
+                idproducto, Codigoarticulo, descarticulo, NombreSucursal, NombreDeposito,
+                SaldoInicial, pminicial, SaldoInicialvalor,
+                entrada, pmentrada, entradavalor,
+                0 AS entradaTransferencia, 0 AS pmentradaTransferencia, 0 AS entradavalorTransferencia,
+                salida, pmsalida, salidavalor,
+                0 AS salidaTransferencia, 0 AS pmsalidaTransferencia, 0 AS salidavalorTransferencia,
+                saldo, pmsaldo, saldovalor,
+                pminicialMoneda, SaldoInicialvalorMoneda,
+                pmentradaMoneda, 0 AS pmentradaMonedaTransferencia,
+                entradavalorMoneda, 0 AS entradavalorMonedaTransferencia,
+                pmsalidaMoneda, 0 AS pmsalidaMonedaTransferencia,
+                salidavalorMoneda, 0 AS salidavalorMonedaTransferencia,
+                pmsaldoMoneda, saldovalorMoneda
+            FROM #TemporalExistencias3
+
+        END
+        ELSE
+        BEGIN
+            -- ================================================================
+            -- FLUJO NORMAL (cuando SÍ existe histórico)
+            -- ================================================================
+            PRINT '>>> EJECUTANDO PROCEDIMIENTO ALMACENADO <<<'
+            PRINT '=========================================='
+            PRINT 'Parámetros:'
+            PRINT '  @FechaDesde: ' + @FechaDesde
+            PRINT '  @FechaHasta: ' + @FechaHasta
+            PRINT '  @tipo: ' + CAST(@tipo AS VARCHAR)
+            PRINT ''
+
+            -- Cargar datos
+            INSERT INTO #TemporalKardexArticulo1
+            EXEC sp_kardexAlmacenPM_Optimizado1
+                @FechaDesde,
+                @FechaHasta,
+                @ListaArticulos,
+                @idsucursal,
+                @iddeposito,
+                @tipo
+
+            -- Consolidar existencias
+            INSERT INTO #TemporalExistencias1
+            SELECT
+                idproducto,
+                Codigoarticulo,
+                descarticulo,
+                NombreSucursal,
+                NombreDeposito,
+                SUM(saldoinicial) AS SaldoInicial,
+                CASE WHEN SUM(saldoInicial) > 0 THEN SUM(saldoInicialvalor) / SUM(saldoInicial) ELSE 0 END AS pminicial,
+                SUM(saldoInicialvalor) AS SaldoInicialvalor,
+                SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END) AS entrada,
+                CASE WHEN SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END) > 0
+                     THEN SUM(CASE WHEN idcomprobante != 18 THEN entradavalor ELSE 0 END) / SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END)
+                     ELSE 0 END AS pmentrada,
+                SUM(CASE WHEN idcomprobante != 18 THEN entradavalor ELSE 0 END) AS entradavalor,
+                SUM(CASE WHEN idcomprobante = 18 THEN entrada ELSE 0 END) AS entradaTransferencia,
+                CASE WHEN SUM(CASE WHEN idcomprobante = 18 THEN entrada ELSE 0 END) > 0
+                     THEN SUM(CASE WHEN idcomprobante = 18 THEN entradavalor ELSE 0 END) / SUM(CASE WHEN idcomprobante = 18 THEN entrada ELSE 0 END)
+                     ELSE 0 END AS pmentradaTransferencia,
+                SUM(CASE WHEN idcomprobante = 18 THEN entradavalor ELSE 0 END) AS entradavalorTransferencia,
+                SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END) AS salida,
+                CASE WHEN SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END) > 0
+                     THEN SUM(CASE WHEN idcomprobante != 19 THEN salidavalor ELSE 0 END) / SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END)
+                     ELSE 0 END AS pmsalida,
+                SUM(CASE WHEN idcomprobante != 19 THEN salidavalor ELSE 0 END) AS salidavalor,
+                SUM(CASE WHEN idcomprobante = 19 THEN salida ELSE 0 END) AS salidaTransferencia,
+                CASE WHEN SUM(CASE WHEN idcomprobante = 19 THEN salida ELSE 0 END) > 0
+                     THEN SUM(CASE WHEN idcomprobante = 19 THEN salidavalor ELSE 0 END) / SUM(CASE WHEN idcomprobante = 19 THEN salida ELSE 0 END)
+                     ELSE 0 END AS pmsalidaTransferencia,
+                SUM(CASE WHEN idcomprobante = 19 THEN salidavalor ELSE 0 END) AS salidavalorTransferencia,
+                SUM(saldoInicial) + SUM(entrada) - SUM(salida) AS saldo,
+                CASE WHEN (SUM(saldoInicial) + SUM(entrada) - SUM(salida)) > 0
+                     THEN (SUM(saldoInicialvalor) + SUM(entradavalor) - SUM(salidavalor)) / (SUM(saldoInicial) + SUM(entrada) - SUM(salida))
+                     ELSE 0 END AS pmsaldo,
+                SUM(saldoInicialvalor) + SUM(entradavalor) - SUM(salidavalor) AS saldovalor,
+                CASE WHEN SUM(saldoInicial) > 0 THEN SUM(saldoinicialvalorMoneda) / SUM(saldoInicial) ELSE 0 END AS pminicialMoneda,
+                SUM(saldoinicialvalorMoneda) AS SaldoInicialvalorMoneda,
+                CASE WHEN SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END) > 0
+                     THEN SUM(CASE WHEN idcomprobante != 18 THEN entradavalorMoneda ELSE 0 END) / SUM(CASE WHEN idcomprobante != 18 THEN entrada ELSE 0 END)
+                     ELSE 0 END AS pmentradaMoneda,
+                CASE WHEN SUM(CASE WHEN idcomprobante = 18 THEN entrada ELSE 0 END) > 0
+                     THEN SUM(CASE WHEN idcomprobante = 18 THEN entradavalorMoneda ELSE 0 END) / SUM(CASE WHEN idcomprobante = 18 THEN entrada ELSE 0 END)
+                     ELSE 0 END AS pmentradaMonedaTransferencia,
+                SUM(CASE WHEN idcomprobante != 18 THEN entradavalorMoneda ELSE 0 END) AS entradavalorMoneda,
+                SUM(CASE WHEN idcomprobante = 18 THEN entradavalorMoneda ELSE 0 END) AS entradavalorMonedaTransferencia,
+                CASE WHEN SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END) > 0
+                     THEN SUM(CASE WHEN idcomprobante != 19 THEN salidavalorMoneda ELSE 0 END) / SUM(CASE WHEN idcomprobante != 19 THEN salida ELSE 0 END)
+                     ELSE 0 END AS pmsalidaMoneda,
+                CASE WHEN SUM(CASE WHEN idcomprobante = 19 THEN salida ELSE 0 END) > 0
+                     THEN SUM(CASE WHEN idcomprobante = 19 THEN salidavalorMoneda ELSE 0 END) / SUM(CASE WHEN idcomprobante = 19 THEN salida ELSE 0 END)
+                     ELSE 0 END AS pmsalidaMonedaTransferencia,
+                SUM(CASE WHEN idcomprobante != 19 THEN salidavalorMoneda ELSE 0 END) AS salidavalorMoneda,
+                SUM(CASE WHEN idcomprobante = 19 THEN salidavalorMoneda ELSE 0 END) AS salidavalorMonedaTransferencia,
+                CASE WHEN (SUM(saldoInicial) + SUM(entrada) - SUM(salida)) > 0
+                     THEN (SUM(saldoinicialvalorMoneda) + SUM(entradavalorMoneda) - SUM(salidavalorMoneda)) / (SUM(saldoInicial) + SUM(entrada) - SUM(salida))
+                     ELSE 0 END AS pmsaldoMoneda,
+                SUM(saldoInicialvalorMoneda) + SUM(entradavalorMoneda) - SUM(salidavalorMoneda) AS saldovalorMoneda
+            FROM #TemporalKardexArticulo1
+            GROUP BY
+                Codigoarticulo,
+                descarticulo,
+                NombreSucursal,
+                NombreDeposito,
+                idproducto
+        END
 
         -- Insertar en Kardex Contable
         INSERT INTO #TemporalKardexContable
@@ -967,15 +1164,15 @@ BEGIN
         ) AS x
 
         -- Limpiar registros en cero
-        DELETE FROM #TemporalKardexContable  
+        DELETE FROM #TemporalKardexContable
         WHERE dbo.EsCeroContable((
-            SaldoInicial + pminicial + SaldoInicialvalor + 
-            entrada + pmentrada + entradavalor + 
-            salida + pmsalida + salidavalor + 
+            SaldoInicial + pminicial + SaldoInicialvalor +
+            entrada + pmentrada + entradavalor +
+            salida + pmsalida + salidavalor +
             saldo + pmsaldo + saldovalor +
-            pminicialMoneda + SaldoInicialvalorMoneda + 
-            pmentradaMoneda + entradavalorMoneda + 
-            pmsalidaMoneda + salidavalorMoneda + 
+            pminicialMoneda + SaldoInicialvalorMoneda +
+            pmentradaMoneda + entradavalorMoneda +
+            pmsalidaMoneda + salidavalorMoneda +
             pmsaldoMoneda + saldovalorMoneda +
             entradaTransferencia + pmentradaTransferencia + entradavalorTransferencia +
             salidaTransferencia + pmsalidaTransferencia + salidavalorTransferencia +
@@ -985,9 +1182,9 @@ BEGIN
 
         -- Resultados según tipo
         IF @tipo = 2
-        BEGIN 
-            SELECT * 
-            FROM #TemporalKardexContable 
+        BEGIN
+            SELECT *
+            FROM #TemporalKardexContable
             ORDER BY descarticulo
         END
         
