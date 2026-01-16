@@ -27,7 +27,8 @@ SET XACT_ABORT ON;
 DECLARE
 @IB_KardexAlm BIT,
 @IB_KardexUM BIT,
-@TipoCosto CHAR(10);
+@TipoCosto CHAR(10),
+@P_FECHA_HASTA DATETIME; -- Límite superior calculado internamente
 
 SELECT TOP (1)
     @IB_KardexAlm = ISNULL(IB_KardexAlm,0),
@@ -40,6 +41,25 @@ WHERE
 
 IF (@TipoCosto <> 'PROMEDIO')
 	RETURN;
+
+-- Fecha límite FIJA para evitar procesar millones de movimientos innecesarios
+-- Solo procesa movimientos hasta el 31 de mayo 2025 23:59:59
+-- (incluye TODO mayo para asegurar que capture movimientos de abril)
+SET @P_FECHA_HASTA = CAST('2025-05-31T23:59:59' AS DATETIME);
+
+-- Mostrar rango de fechas a procesar (solo si DEBUG activado)
+IF (@P_DEBUG = 1)
+BEGIN
+	PRINT '========================================';
+	PRINT 'RECALCULO OPTIMIZADO - RANGO DE FECHAS';
+	PRINT '========================================';
+	PRINT 'Producto: ' + @P_CODIGO_PRODUCTO;
+	PRINT 'Fecha Desde: ' + CONVERT(VARCHAR(20), @P_FECHA_MOVIMIENTO, 120);
+	PRINT 'Fecha Hasta: ' + CONVERT(VARCHAR(20), @P_FECHA_HASTA, 120);
+	PRINT 'Días a procesar: ' + CAST(DATEDIFF(DAY, @P_FECHA_MOVIMIENTO, @P_FECHA_HASTA) AS VARCHAR(10));
+	PRINT '========================================';
+	PRINT '';
+END
 
 ---------------------------------------------------------------------
 -- Precalcular piezas reutilizables en #temps con índices
@@ -75,6 +95,7 @@ WHERE
 	AND id2.Cd_Prod = @P_CODIGO_PRODUCTO
 	AND ISNULL(ci2.IC_TipoCostoInventario,'M') = 'M'
 	AND i2.FechaMovimiento >= @P_FECHA_MOVIMIENTO
+	AND i2.FechaMovimiento <= @P_FECHA_HASTA  -- LÍMITE SUPERIOR: Última fecha + 1 mes
 	AND (ISNULL(i2.C_IB_INTEGRACION_EXTERNA,0) = 0 OR (ISNULL(i2.C_IB_INTEGRACION_EXTERNA,0)=1 AND ISNULL(i2.C_IB_RECALCULAR_COSTOS,0)=1));
 
 CREATE UNIQUE CLUSTERED INDEX
@@ -871,3 +892,4 @@ DEALLOCATE inventario_cursor_M;
 
 --Leyenda
 --Williams Gutierrez: 30/10/2025 <(121139) Se creó el sp a partir del [inventario].[USP_COSTO_INVENTARIO_RECALCULAR_INDIVIDUAL_1], optimizando los tiempos y corrigiendo el recálculo de costos cuando son transferencias>
+--Claude Code: 16/01/2026 <Optimización: Se agregó límite superior FIJO (@P_FECHA_HASTA = '2025-05-31 23:59:59') para evitar procesar años de movimientos innecesarios. Solo procesa movimientos desde @P_FECHA_MOVIMIENTO hasta el 31 de mayo 2025 23:59:59. Se usa fin del día para incluir movimientos con hora.>
