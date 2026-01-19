@@ -1,6 +1,6 @@
 USE [ERP_ECHA]
 GO
-/****** Object:  StoredProcedure [contabilidad].[USP_VOUCHER_DOCS_CONTABLE_SIN_ANEXO_4_PERIODO]    Script Date: 19/01/2026 14:14:32 ******/
+/****** Object:  StoredProcedure [contabilidad].[USP_VOUCHER_DOCS_CONTABLE_SIN_ANEXO_4_PERIODO]    Script Date: 19/01/2026 14:42:49 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
