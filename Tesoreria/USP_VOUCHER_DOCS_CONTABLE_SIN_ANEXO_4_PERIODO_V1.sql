@@ -1,6 +1,6 @@
 USE [ERP_ECHA]
 GO
-/****** Object:  StoredProcedure [contabilidad].[USP_VOUCHER_DOCS_CONTABLE_SIN_ANEXO_4_PERIODO]    Script Date: 19/01/2026 14:42:49 ******/
+/****** Object:  StoredProcedure [contabilidad].[USP_VOUCHER_DOCS_CONTABLE_SIN_ANEXO_4_PERIODO]    Script Date: 19/01/2026 16:25:01 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -34,21 +34,9 @@ declare @L_CONSULTA1 varchar(max)
 declare @L_CONSULTA2 varchar(max)
 declare @L_CONSULTA3 varchar(max)
 
--- FILTROS HARDCODEADOS POR TIPO DE DOCUMENTO Y PERIODO
--- Rango 1: Boletas y Facturas de Abril a Septiembre (separar por coma)
-DECLARE @TiposDocs1 VARCHAR(50) = '03,01'  -- Varios tipos separados por coma
-DECLARE @PeriodoDesde1 VARCHAR(6) = '202504'
-DECLARE @PeriodoHasta1 VARCHAR(6) = '202509'
-
--- Rango 2: Notas de Crédito y Débito de Octubre a Noviembre
-DECLARE @TiposDocs2 VARCHAR(50) = '07,08'
-DECLARE @PeriodoDesde2 VARCHAR(6) = '202510'
-DECLARE @PeriodoHasta2 VARCHAR(6) = '202511'
-
--- Rango 3: (descomentar si necesitas otro rango)
--- DECLARE @TiposDocs3 VARCHAR(50) = '02'
--- DECLARE @PeriodoDesde3 VARCHAR(6) = '202501'
--- DECLARE @PeriodoHasta3 VARCHAR(6) = '202512'
+-- FILTRO DE PERIODOS HARDCODEADO
+DECLARE @PeriodoDesde VARCHAR(6) = '202504'
+DECLARE @PeriodoHasta VARCHAR(6) = '202509'
 
 declare @L_OPC varchar(500)      
 declare @C_IB_AUTORIZA_VOUCHER  BIT     
@@ -185,10 +173,7 @@ select
  ISNULL(v.NroDoc,'''') != '''' and      
  ISNULL(v.Cd_TD,'''') != '''' and      
  isnull(v.IB_Anulado,0) <> 1 '+ @L_OPC + ' and
- (
-   (v.Cd_TD IN (''' + REPLACE(@TiposDocs1, ',', ''',''') + ''') AND (v.Ejer + v.Prdo) BETWEEN ''' + @PeriodoDesde1 + ''' AND ''' + @PeriodoHasta1 + ''')
-   OR (v.Cd_TD IN (''' + REPLACE(@TiposDocs2, ',', ''',''') + ''') AND (v.Ejer + v.Prdo) BETWEEN ''' + @PeriodoDesde2 + ''' AND ''' + @PeriodoHasta2 + ''')
- ) and
+ (v.Ejer + v.Prdo) BETWEEN ''' + @PeriodoDesde + ''' AND ''' + @PeriodoHasta + ''' and
  LEN(ISNULL(v.Cd_Clt,'''') + ISNULL(v.Cd_Prv,'''') + ISNULL(v.Cd_Trab,'''')) > 0       
  ' + case       
        
