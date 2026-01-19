@@ -7,7 +7,7 @@
 -- 3. Verifica que los costos se corrijan
 -- =============================================
 
-USE [ERP_ECHA]
+USE [ERP_TEST]
 GO
 
 SET NOCOUNT ON;

@@ -4,7 +4,7 @@ SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
-ALTER proc [dbo].[sp_kardexAlmacenPM] 
+ALTER proc [dbo].[sp_kardexAlmacenPM]
 @FechaDesde VARCHAR(50) = '202412010000',
 @FechaHasta VARCHAR(50) = '202412050000',
 @ListaArticulos VARCHAR(8000) = '',
@@ -17,6 +17,9 @@ set fmtonly off
 
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
+-- Variable interna para habilitar mensajes de diagnóstico (cambiar a 1 para depurar)
+DECLARE @Debug BIT = 0
 
 declare @FechaDesdeInicio VARCHAR(50) = '202001010000'
 CREATE TABLE #TemporalKardexArticulo1 (
@@ -275,6 +278,8 @@ MaxFechaStockInicialNumber BIGINT,MaxFechaGuiaRecepcionNumber BIGINT)
 
 create table #FechasAjustadas (CodigoArticulo varchar(20),Descripcion varchar(max),FechaUltimoIngreso datetime,FechaUltimaSalida datetime,MaxFechaStockInicialNumber BIGINT,MaxFechaGuiaRecepcionNumber BIGINT, PrecioUnitarioSoles float,PrecioUnitarioDolares float)
 
+BEGIN TRY
+
 IF @tipo = 1
 BEGIN
     INSERT #TemporalKardexArticulo1
@@ -410,16 +415,19 @@ BEGIN
 
         SET @FechaDesdeOriginal = @FechaDesde
 
-        PRINT '=========================================='
-        PRINT 'PASO 1: PARÁMETROS INICIALES'
-        PRINT '=========================================='
-        PRINT 'Tipo: ' + CAST(@tipo AS VARCHAR)
-        PRINT 'FechaDesde Original: ' + @FechaDesde
-        PRINT 'FechaHasta Original: ' + @FechaHasta
-        PRINT 'IdSucursal: ' + CAST(@idsucursal AS VARCHAR)
-        PRINT 'IdDeposito: ' + CAST(@iddeposito AS VARCHAR)
-        PRINT 'ListaArticulos: ' + ISNULL(@ListaArticulos, '(vacío)')
-        PRINT ''
+        IF @Debug = 1
+        BEGIN
+            PRINT '=========================================='
+            PRINT 'PASO 1: PARÁMETROS INICIALES'
+            PRINT '=========================================='
+            PRINT 'Tipo: ' + CAST(@tipo AS VARCHAR)
+            PRINT 'FechaDesde Original: ' + @FechaDesde
+            PRINT 'FechaHasta Original: ' + @FechaHasta
+            PRINT 'IdSucursal: ' + CAST(@idsucursal AS VARCHAR)
+            PRINT 'IdDeposito: ' + CAST(@iddeposito AS VARCHAR)
+            PRINT 'ListaArticulos: ' + ISNULL(@ListaArticulos, '(vacío)')
+            PRINT ''
+        END
 
         -- Obtener último histórico
         SELECT TOP 1 
@@ -430,24 +438,33 @@ BEGIN
           AND IdDeposito = @iddeposito
         ORDER BY anio DESC, mes DESC
 
-        PRINT '=========================================='
-        PRINT 'PASO 2: ÚLTIMO HISTÓRICO DISPONIBLE'
-        PRINT '=========================================='
-        PRINT 'Mes Último Histórico: ' + CAST(@MaxMes AS VARCHAR)
-        PRINT 'Año Último Histórico: ' + CAST(@MaxAnio AS VARCHAR)
-        PRINT 'Periodo: ' + CAST(@MaxAnio AS VARCHAR) + '-' + RIGHT('0' + CAST(@MaxMes AS VARCHAR), 2)
-        PRINT ''
+        IF @Debug = 1
+        BEGIN
+            PRINT '=========================================='
+            PRINT 'PASO 2: ÚLTIMO HISTÓRICO DISPONIBLE'
+            PRINT '=========================================='
+            PRINT 'Mes Último Histórico: ' + CAST(@MaxMes AS VARCHAR)
+            PRINT 'Año Último Histórico: ' + CAST(@MaxAnio AS VARCHAR)
+            PRINT 'Periodo: ' + CAST(@MaxAnio AS VARCHAR) + '-' + RIGHT('0' + CAST(@MaxMes AS VARCHAR), 2)
+            PRINT ''
+        END
 
         -- Determinar fecha de referencia según tipo
-        PRINT '=========================================='
-        PRINT 'PASO 3: FECHA DE REFERENCIA'
-        PRINT '=========================================='
-        
+        IF @Debug = 1
+        BEGIN
+            PRINT '=========================================='
+            PRINT 'PASO 3: FECHA DE REFERENCIA'
+            PRINT '=========================================='
+        END
+
         IF @tipo = 2
         BEGIN
-            PRINT 'Tipo 2 detectado: Se usará FechaDesde como referencia'
-            PRINT 'String Original: ' + @FechaDesde
-            
+            IF @Debug = 1
+            BEGIN
+                PRINT 'Tipo 2 detectado: Se usará FechaDesde como referencia'
+                PRINT 'String Original: ' + @FechaDesde
+            END
+
             SET @FechaReferenciaDate = CAST(
                 SUBSTRING(@FechaDesde, 1, 4) + '-' +
                 SUBSTRING(@FechaDesde, 5, 2) + '-' +
@@ -459,9 +476,12 @@ BEGIN
         END
         ELSE IF @tipo = 3
         BEGIN
-            PRINT 'Tipo 3 detectado: Se usará FechaHasta como referencia'
-            PRINT 'String Original: ' + @FechaHasta
-            
+            IF @Debug = 1
+            BEGIN
+                PRINT 'Tipo 3 detectado: Se usará FechaHasta como referencia'
+                PRINT 'String Original: ' + @FechaHasta
+            END
+
             SET @FechaReferenciaDate = CAST(
                 SUBSTRING(@FechaHasta, 1, 4) + '-' +
                 SUBSTRING(@FechaHasta, 5, 2) + '-' +
@@ -471,53 +491,71 @@ BEGIN
                 AS DATETIME
             )
         END
-        
-        PRINT 'Convertido a DateTime: ' + CONVERT(VARCHAR(20), @FechaReferenciaDate, 120)
-        PRINT ''
+
+        IF @Debug = 1
+        BEGIN
+            PRINT 'Convertido a DateTime: ' + CONVERT(VARCHAR(20), @FechaReferenciaDate, 120)
+            PRINT ''
+        END
 
         -- Extraer mes y año de referencia
         SET @MesReferencia = MONTH(@FechaReferenciaDate)
         SET @AnioReferencia = YEAR(@FechaReferenciaDate)
-        
-        PRINT '=========================================='
-        PRINT 'PASO 4: EXTRAER MES Y AÑO DE REFERENCIA'
-        PRINT '=========================================='
-        PRINT 'Mes Referencia: ' + CAST(@MesReferencia AS VARCHAR)
-        PRINT 'Año Referencia: ' + CAST(@AnioReferencia AS VARCHAR)
-        PRINT 'Periodo: ' + CAST(@AnioReferencia AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesReferencia AS VARCHAR), 2)
-        PRINT ''
+
+        IF @Debug = 1
+        BEGIN
+            PRINT '=========================================='
+            PRINT 'PASO 4: EXTRAER MES Y AÑO DE REFERENCIA'
+            PRINT '=========================================='
+            PRINT 'Mes Referencia: ' + CAST(@MesReferencia AS VARCHAR)
+            PRINT 'Año Referencia: ' + CAST(@AnioReferencia AS VARCHAR)
+            PRINT 'Periodo: ' + CAST(@AnioReferencia AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesReferencia AS VARCHAR), 2)
+            PRINT ''
+        END
 
         -- Verificar si es último día del mes (solo para TIPO 2)
         IF @tipo = 2
         BEGIN
-            PRINT '=========================================='
-            PRINT 'PASO 4.1: VERIFICAR SI ES ÚLTIMO DÍA DEL MES'
-            PRINT '=========================================='
-            
+            IF @Debug = 1
+            BEGIN
+                PRINT '=========================================='
+                PRINT 'PASO 4.1: VERIFICAR SI ES ÚLTIMO DÍA DEL MES'
+                PRINT '=========================================='
+            END
+
             SET @UltimoDiaMes = DAY(EOMONTH(@FechaReferenciaDate))
-            
+
             IF DAY(@FechaReferenciaDate) = @UltimoDiaMes
             BEGIN
                 SET @EsUltimoDiaMes = 1
-                PRINT 'Día de FechaDesde: ' + CAST(DAY(@FechaReferenciaDate) AS VARCHAR)
-                PRINT 'Último día del mes: ' + CAST(@UltimoDiaMes AS VARCHAR)
-                PRINT 'Resultado: ES EL ÚLTIMO DÍA DEL MES'
+                IF @Debug = 1
+                BEGIN
+                    PRINT 'Día de FechaDesde: ' + CAST(DAY(@FechaReferenciaDate) AS VARCHAR)
+                    PRINT 'Último día del mes: ' + CAST(@UltimoDiaMes AS VARCHAR)
+                    PRINT 'Resultado: ES EL ÚLTIMO DÍA DEL MES'
+                END
             END
             ELSE
             BEGIN
                 SET @EsUltimoDiaMes = 0
-                PRINT 'Día de FechaDesde: ' + CAST(DAY(@FechaReferenciaDate) AS VARCHAR)
-                PRINT 'Último día del mes: ' + CAST(@UltimoDiaMes AS VARCHAR)
-                PRINT 'Resultado: NO es el último día del mes'
+                IF @Debug = 1
+                BEGIN
+                    PRINT 'Día de FechaDesde: ' + CAST(DAY(@FechaReferenciaDate) AS VARCHAR)
+                    PRINT 'Último día del mes: ' + CAST(@UltimoDiaMes AS VARCHAR)
+                    PRINT 'Resultado: NO es el último día del mes'
+                END
             END
-            PRINT ''
+            IF @Debug = 1 PRINT ''
         END
 
         -- Calcular mes para búsqueda
-        PRINT '=========================================='
-        PRINT 'PASO 5: CALCULAR MES PARA BÚSQUEDA'
-        PRINT '=========================================='
-        
+        IF @Debug = 1
+        BEGIN
+            PRINT '=========================================='
+            PRINT 'PASO 5: CALCULAR MES PARA BÚSQUEDA'
+            PRINT '=========================================='
+        END
+
         IF @tipo = 2
         BEGIN
             IF @EsUltimoDiaMes = 1
@@ -526,25 +564,31 @@ BEGIN
                 SET @FechaMesProximo = DATEADD(MONTH, 1, @FechaReferenciaDate)
                 SET @MesProximo = MONTH(@FechaMesProximo)
                 SET @AnioProximo = YEAR(@FechaMesProximo)
-                
-                PRINT 'TIPO 2 - ÚLTIMO DÍA DEL MES:'
-                PRINT 'Paso 1: Sumar 1 mes a la fecha'
-                PRINT 'Fecha Referencia: ' + CONVERT(VARCHAR(20), @FechaReferenciaDate, 120)
-                PRINT 'Sumando 1 mes...'
-                PRINT 'Fecha Mes Próximo: ' + CONVERT(VARCHAR(20), @FechaMesProximo, 120)
-                PRINT 'Mes Próximo: ' + CAST(@MesProximo AS VARCHAR)
-                PRINT 'Año Próximo: ' + CAST(@AnioProximo AS VARCHAR)
-                PRINT ''
-                PRINT 'Paso 2: Restar 1 al mes próximo para búsqueda en histórico'
-                
+
+                IF @Debug = 1
+                BEGIN
+                    PRINT 'TIPO 2 - ÚLTIMO DÍA DEL MES:'
+                    PRINT 'Paso 1: Sumar 1 mes a la fecha'
+                    PRINT 'Fecha Referencia: ' + CONVERT(VARCHAR(20), @FechaReferenciaDate, 120)
+                    PRINT 'Sumando 1 mes...'
+                    PRINT 'Fecha Mes Próximo: ' + CONVERT(VARCHAR(20), @FechaMesProximo, 120)
+                    PRINT 'Mes Próximo: ' + CAST(@MesProximo AS VARCHAR)
+                    PRINT 'Año Próximo: ' + CAST(@AnioProximo AS VARCHAR)
+                    PRINT ''
+                    PRINT 'Paso 2: Restar 1 al mes próximo para búsqueda en histórico'
+                END
+
                 -- Restar 1 mes al mes próximo para histórico
                 SET @FechaMesAnterior = DATEADD(MONTH, -1, @FechaMesProximo)
                 SET @MesAnterior = MONTH(@FechaMesAnterior)
                 SET @AnioAnterior = YEAR(@FechaMesAnterior)
-                
-                PRINT 'Mes para búsqueda en histórico: ' + CAST(@MesAnterior AS VARCHAR)
-                PRINT 'Año para búsqueda en histórico: ' + CAST(@AnioAnterior AS VARCHAR)
-                PRINT 'Periodo a buscar: ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
+
+                IF @Debug = 1
+                BEGIN
+                    PRINT 'Mes para búsqueda en histórico: ' + CAST(@MesAnterior AS VARCHAR)
+                    PRINT 'Año para búsqueda en histórico: ' + CAST(@AnioAnterior AS VARCHAR)
+                    PRINT 'Periodo a buscar: ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
+                END
             END
             ELSE
             BEGIN
@@ -552,14 +596,17 @@ BEGIN
                 SET @FechaMesAnterior = DATEADD(MONTH, -1, @FechaReferenciaDate)
                 SET @MesAnterior = MONTH(@FechaMesAnterior)
                 SET @AnioAnterior = YEAR(@FechaMesAnterior)
-                
-                PRINT 'TIPO 2 - NO es último día: Se RESTARÁ 1 MES'
-                PRINT 'Fecha Referencia: ' + CONVERT(VARCHAR(20), @FechaReferenciaDate, 120)
-                PRINT 'Restando 1 mes...'
-                PRINT 'Fecha Mes Anterior: ' + CONVERT(VARCHAR(20), @FechaMesAnterior, 120)
-                PRINT 'Mes para búsqueda en histórico: ' + CAST(@MesAnterior AS VARCHAR)
-                PRINT 'Año para búsqueda en histórico: ' + CAST(@AnioAnterior AS VARCHAR)
-                PRINT 'Periodo a buscar: ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
+
+                IF @Debug = 1
+                BEGIN
+                    PRINT 'TIPO 2 - NO es último día: Se RESTARÁ 1 MES'
+                    PRINT 'Fecha Referencia: ' + CONVERT(VARCHAR(20), @FechaReferenciaDate, 120)
+                    PRINT 'Restando 1 mes...'
+                    PRINT 'Fecha Mes Anterior: ' + CONVERT(VARCHAR(20), @FechaMesAnterior, 120)
+                    PRINT 'Mes para búsqueda en histórico: ' + CAST(@MesAnterior AS VARCHAR)
+                    PRINT 'Año para búsqueda en histórico: ' + CAST(@AnioAnterior AS VARCHAR)
+                    PRINT 'Periodo a buscar: ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
+                END
             END
         END
         ELSE IF @tipo = 3
@@ -568,27 +615,33 @@ BEGIN
             SET @FechaMesAnterior = DATEADD(MONTH, -1, @FechaReferenciaDate)
             SET @MesAnterior = MONTH(@FechaMesAnterior)
             SET @AnioAnterior = YEAR(@FechaMesAnterior)
-            
-            PRINT 'TIPO 3: Se RESTARÁ 1 MES a la fecha de referencia'
-            PRINT 'Fecha Referencia: ' + CONVERT(VARCHAR(20), @FechaReferenciaDate, 120)
-            PRINT 'Restando 1 mes...'
-            PRINT 'Fecha Mes Anterior: ' + CONVERT(VARCHAR(20), @FechaMesAnterior, 120)
-            PRINT 'Mes para búsqueda: ' + CAST(@MesAnterior AS VARCHAR)
-            PRINT 'Año para búsqueda: ' + CAST(@AnioAnterior AS VARCHAR)
-            PRINT 'Periodo: ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
+
+            IF @Debug = 1
+            BEGIN
+                PRINT 'TIPO 3: Se RESTARÁ 1 MES a la fecha de referencia'
+                PRINT 'Fecha Referencia: ' + CONVERT(VARCHAR(20), @FechaReferenciaDate, 120)
+                PRINT 'Restando 1 mes...'
+                PRINT 'Fecha Mes Anterior: ' + CONVERT(VARCHAR(20), @FechaMesAnterior, 120)
+                PRINT 'Mes para búsqueda: ' + CAST(@MesAnterior AS VARCHAR)
+                PRINT 'Año para búsqueda: ' + CAST(@AnioAnterior AS VARCHAR)
+                PRINT 'Periodo: ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
+            END
         END
-        PRINT ''
+        IF @Debug = 1 PRINT ''
 
         -- Verificar existencia en histórico
-        PRINT '=========================================='
-        PRINT 'PASO 6: VERIFICAR EXISTENCIA EN HISTÓRICO'
-        PRINT '=========================================='
-        PRINT 'Buscando en KardexContableHistorico:'
-        PRINT '  Mes: ' + CAST(@MesAnterior AS VARCHAR)
-        PRINT '  Año: ' + CAST(@AnioAnterior AS VARCHAR)
-        PRINT '  Sucursal: ' + CAST(@idsucursal AS VARCHAR)
-        PRINT '  Depósito: ' + CAST(@iddeposito AS VARCHAR)
-        PRINT ''
+        IF @Debug = 1
+        BEGIN
+            PRINT '=========================================='
+            PRINT 'PASO 6: VERIFICAR EXISTENCIA EN HISTÓRICO'
+            PRINT '=========================================='
+            PRINT 'Buscando en KardexContableHistorico:'
+            PRINT '  Mes: ' + CAST(@MesAnterior AS VARCHAR)
+            PRINT '  Año: ' + CAST(@AnioAnterior AS VARCHAR)
+            PRINT '  Sucursal: ' + CAST(@idsucursal AS VARCHAR)
+            PRINT '  Depósito: ' + CAST(@iddeposito AS VARCHAR)
+            PRINT ''
+        END
         
         IF EXISTS (
             SELECT 1 
@@ -605,11 +658,14 @@ BEGIN
 
             IF @tipo = 2
             BEGIN
-                PRINT '>>> RESULTADO: SÍ EXISTE <<<'
-                PRINT 'Se encontró el periodo ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
-                PRINT 'DECISIÓN TIPO 2: Se usará este mes/año para histórico'
-                PRINT '  Mes Seleccionado: ' + CAST(@Mes AS VARCHAR)
-                PRINT '  Año Seleccionado: ' + CAST(@Anio AS VARCHAR)
+                IF @Debug = 1
+                BEGIN
+                    PRINT '>>> RESULTADO: SÍ EXISTE <<<'
+                    PRINT 'Se encontró el periodo ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
+                    PRINT 'DECISIÓN TIPO 2: Se usará este mes/año para histórico'
+                    PRINT '  Mes Seleccionado: ' + CAST(@Mes AS VARCHAR)
+                    PRINT '  Año Seleccionado: ' + CAST(@Anio AS VARCHAR)
+                END
             END
             ELSE IF @tipo = 3
             BEGIN
@@ -619,17 +675,20 @@ BEGIN
                     AS DATETIME
                 )
             
-                SET @FechaDesde = 
+                SET @FechaDesde =
                     CONVERT(VARCHAR(4), YEAR(@PrimerDiaMes)) +
                     RIGHT('0' + CONVERT(VARCHAR(2), MONTH(@PrimerDiaMes)), 2) +
                     '010000'
-                
-                PRINT '>>> RESULTADO: SÍ EXISTE <<<'
-                PRINT 'Se encontró el periodo ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
-                PRINT 'DECISIÓN TIPO 3: Se usará el mes anterior'
-                PRINT '  Mes Seleccionado: ' + CAST(@Mes AS VARCHAR)
-                PRINT '  Año Seleccionado: ' + CAST(@Anio AS VARCHAR)
-                PRINT '  FechaDesde: AJUSTADA al día 1 del mes de referencia'
+
+                IF @Debug = 1
+                BEGIN
+                    PRINT '>>> RESULTADO: SÍ EXISTE <<<'
+                    PRINT 'Se encontró el periodo ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
+                    PRINT 'DECISIÓN TIPO 3: Se usará el mes anterior'
+                    PRINT '  Mes Seleccionado: ' + CAST(@Mes AS VARCHAR)
+                    PRINT '  Año Seleccionado: ' + CAST(@Anio AS VARCHAR)
+                    PRINT '  FechaDesde: AJUSTADA al día 1 del mes de referencia'
+                END
             END
         END
         ELSE
@@ -659,14 +718,17 @@ BEGIN
                     RIGHT('0' + CONVERT(VARCHAR(2), DAY(@FechaAnterior)), 2) +
                     '2359'
 
-                PRINT '>>> RESULTADO: NO EXISTE - TIPO 2 CÁLCULO INTERMEDIO <<<'
-                PRINT 'No se encontró el periodo ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
-                PRINT 'DECISIÓN: Es TIPO 2 - Se calculará saldo hasta la fecha solicitada'
-                PRINT '  Se usará histórico de: ' + CAST(@MaxAnio AS VARCHAR) + '-' + RIGHT('0' + CAST(@MaxMes AS VARCHAR), 2)
-                PRINT '  FechaDesde: SE MANTIENE ORIGINAL (no se modifica)'
-                PRINT '  RequiereCalculoSaldoIntermedio: SÍ'
-                PRINT '  FechaInicioCalculoSaldo: ' + @FechaInicioCalculoSaldo
-                PRINT '  FechaFinCalculoSaldo: ' + @FechaFinCalculoSaldo
+                IF @Debug = 1
+                BEGIN
+                    PRINT '>>> RESULTADO: NO EXISTE - TIPO 2 CÁLCULO INTERMEDIO <<<'
+                    PRINT 'No se encontró el periodo ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
+                    PRINT 'DECISIÓN: Es TIPO 2 - Se calculará saldo hasta la fecha solicitada'
+                    PRINT '  Se usará histórico de: ' + CAST(@MaxAnio AS VARCHAR) + '-' + RIGHT('0' + CAST(@MaxMes AS VARCHAR), 2)
+                    PRINT '  FechaDesde: SE MANTIENE ORIGINAL (no se modifica)'
+                    PRINT '  RequiereCalculoSaldoIntermedio: SÍ'
+                    PRINT '  FechaInicioCalculoSaldo: ' + @FechaInicioCalculoSaldo
+                    PRINT '  FechaFinCalculoSaldo: ' + @FechaFinCalculoSaldo
+                END
             END
             ELSE
             BEGIN
@@ -682,117 +744,133 @@ BEGIN
                     RIGHT('0' + CONVERT(VARCHAR(2), MONTH(@PrimerDiaMes)), 2) +
                     '010000'
 
-                PRINT '>>> RESULTADO: NO EXISTE <<<'
-                PRINT 'No se encontró el periodo ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
-                PRINT 'DECISIÓN: Se usará el último mes del histórico'
-                PRINT '  Mes Seleccionado: ' + CAST(@Mes AS VARCHAR)
-                PRINT '  Año Seleccionado: ' + CAST(@Anio AS VARCHAR)
-                PRINT '  FechaDesde: AJUSTADA al día 1 del último mes disponible'
+                IF @Debug = 1
+                BEGIN
+                    PRINT '>>> RESULTADO: NO EXISTE <<<'
+                    PRINT 'No se encontró el periodo ' + CAST(@AnioAnterior AS VARCHAR) + '-' + RIGHT('0' + CAST(@MesAnterior AS VARCHAR), 2)
+                    PRINT 'DECISIÓN: Se usará el último mes del histórico'
+                    PRINT '  Mes Seleccionado: ' + CAST(@Mes AS VARCHAR)
+                    PRINT '  Año Seleccionado: ' + CAST(@Anio AS VARCHAR)
+                    PRINT '  FechaDesde: AJUSTADA al día 1 del último mes disponible'
+                END
             END
         END
-        PRINT ''
 
-        PRINT '=========================================='
-        PRINT 'PASO 7: RESUMEN PRIMER DÍA DEL MES'
-        PRINT '=========================================='
-        PRINT 'Mes Seleccionado: ' + CAST(@Mes AS VARCHAR)
-        PRINT 'Año Seleccionado: ' + CAST(@Anio AS VARCHAR)
-        IF @PrimerDiaMes IS NOT NULL
+        IF @Debug = 1
         BEGIN
-            PRINT 'Primer Día del Mes: ' + CONVERT(VARCHAR(20), @PrimerDiaMes, 120)
-        END
-        ELSE
-        BEGIN
-            PRINT 'Primer Día del Mes: Será calculado antes de ejecutar SP (TIPO 2)'
-        END
-        PRINT ''
-
-        PRINT '=========================================='
-        PRINT 'PASO 8: RESUMEN DE FECHAS FINALES'
-        PRINT '=========================================='
-        PRINT 'FechaDesde actual: ' + @FechaDesde
-        PRINT 'FechaHasta para SP: ' + @FechaHasta
-        PRINT ''
-
-        PRINT '=========================================='
-        PRINT 'PASO 9: RESUMEN FINAL'
-        PRINT '=========================================='
-        PRINT 'TIPO DE CONSULTA: ' + CAST(@tipo AS VARCHAR)
-        PRINT ''
-        PRINT '--- FECHAS ---'
-        PRINT 'FechaDesde Original:  ' + @FechaDesdeOriginal
-        PRINT 'FechaHasta Final:     ' + @FechaHasta
-        PRINT ''
-        PRINT '--- REFERENCIA USADA ---'
-        IF @tipo = 2
-            PRINT 'Se usó como referencia: FechaDesde (TIPO 2)'
-        ELSE
-            PRINT 'Se usó como referencia: FechaHasta (TIPO 3)'
-        PRINT 'Mes Referencia: ' + CAST(@MesReferencia AS VARCHAR)
-        PRINT 'Año Referencia: ' + CAST(@AnioReferencia AS VARCHAR)
-        PRINT ''
-        PRINT '--- CÁLCULO MES PARA CONSULTA ---'
-        IF @tipo = 2
-        BEGIN
-            IF @EsUltimoDiaMes = 1
-                PRINT 'TIPO 2: Es último día - Se sumó 1 mes y luego se restó 1 para histórico'
+            PRINT ''
+            PRINT '=========================================='
+            PRINT 'PASO 7: RESUMEN PRIMER DÍA DEL MES'
+            PRINT '=========================================='
+            PRINT 'Mes Seleccionado: ' + CAST(@Mes AS VARCHAR)
+            PRINT 'Año Seleccionado: ' + CAST(@Anio AS VARCHAR)
+            IF @PrimerDiaMes IS NOT NULL
+            BEGIN
+                PRINT 'Primer Día del Mes: ' + CONVERT(VARCHAR(20), @PrimerDiaMes, 120)
+            END
             ELSE
-                PRINT 'TIPO 2: NO es último día - Se RESTÓ 1 mes'
-            PRINT 'Mes Calculado: ' + CAST(@MesAnterior AS VARCHAR)
-            PRINT 'Año Calculado: ' + CAST(@AnioAnterior AS VARCHAR)
+            BEGIN
+                PRINT 'Primer Día del Mes: Será calculado antes de ejecutar SP (TIPO 2)'
+            END
+            PRINT ''
+
+            PRINT '=========================================='
+            PRINT 'PASO 8: RESUMEN DE FECHAS FINALES'
+            PRINT '=========================================='
+            PRINT 'FechaDesde actual: ' + @FechaDesde
+            PRINT 'FechaHasta para SP: ' + @FechaHasta
+            PRINT ''
+
+            PRINT '=========================================='
+            PRINT 'PASO 9: RESUMEN FINAL'
+            PRINT '=========================================='
+            PRINT 'TIPO DE CONSULTA: ' + CAST(@tipo AS VARCHAR)
+            PRINT ''
+            PRINT '--- FECHAS ---'
+            PRINT 'FechaDesde Original:  ' + @FechaDesdeOriginal
+            PRINT 'FechaHasta Final:     ' + @FechaHasta
+            PRINT ''
+            PRINT '--- REFERENCIA USADA ---'
+            IF @tipo = 2
+                PRINT 'Se usó como referencia: FechaDesde (TIPO 2)'
+            ELSE
+                PRINT 'Se usó como referencia: FechaHasta (TIPO 3)'
+            PRINT 'Mes Referencia: ' + CAST(@MesReferencia AS VARCHAR)
+            PRINT 'Año Referencia: ' + CAST(@AnioReferencia AS VARCHAR)
+            PRINT ''
+            PRINT '--- CÁLCULO MES PARA CONSULTA ---'
+            IF @tipo = 2
+            BEGIN
+                IF @EsUltimoDiaMes = 1
+                    PRINT 'TIPO 2: Es último día - Se sumó 1 mes y luego se restó 1 para histórico'
+                ELSE
+                    PRINT 'TIPO 2: NO es último día - Se RESTÓ 1 mes'
+                PRINT 'Mes Calculado: ' + CAST(@MesAnterior AS VARCHAR)
+                PRINT 'Año Calculado: ' + CAST(@AnioAnterior AS VARCHAR)
+            END
+            ELSE
+            BEGIN
+                PRINT 'TIPO 3: Se RESTÓ 1 mes a FechaHasta'
+                PRINT 'Mes Anterior Calculado: ' + CAST(@MesAnterior AS VARCHAR)
+                PRINT 'Año Anterior Calculado: ' + CAST(@AnioAnterior AS VARCHAR)
+            END
+            PRINT 'Existe en Histórico: ' + CASE WHEN @ExisteHistorico = 1 THEN 'SÍ' ELSE 'NO' END
+            PRINT ''
+            PRINT '--- MES/AÑO USADO PARA CONSULTA ---'
+            PRINT 'Mes: ' + CAST(@Mes AS VARCHAR)
+            PRINT 'Año: ' + CAST(@Anio AS VARCHAR)
+            PRINT 'Observación: ' + CASE
+                WHEN @ExisteHistorico = 1 THEN 'Periodo encontrado en histórico'
+                ELSE 'Usando último histórico disponible (' + CAST(@MaxAnio AS VARCHAR) + '-' + RIGHT('0' + CAST(@MaxMes AS VARCHAR), 2) + ')'
+            END
+            PRINT ''
         END
-        ELSE
-        BEGIN
-            PRINT 'TIPO 3: Se RESTÓ 1 mes a FechaHasta'
-            PRINT 'Mes Anterior Calculado: ' + CAST(@MesAnterior AS VARCHAR)
-            PRINT 'Año Anterior Calculado: ' + CAST(@AnioAnterior AS VARCHAR)
-        END
-        PRINT 'Existe en Histórico: ' + CASE WHEN @ExisteHistorico = 1 THEN 'SÍ' ELSE 'NO' END
-        PRINT ''
-        PRINT '--- MES/AÑO USADO PARA CONSULTA ---'
-        PRINT 'Mes: ' + CAST(@Mes AS VARCHAR)
-        PRINT 'Año: ' + CAST(@Anio AS VARCHAR)
-        PRINT 'Observación: ' + CASE 
-            WHEN @ExisteHistorico = 1 THEN 'Periodo encontrado en histórico'
-            ELSE 'Usando último histórico disponible (' + CAST(@MaxAnio AS VARCHAR) + '-' + RIGHT('0' + CAST(@MaxMes AS VARCHAR), 2) + ')'
-        END
-        PRINT ''
         
         -- *** AJUSTE DE FECHADESDE PARA TIPO 2 ANTES DE EJECUTAR SP ***
         IF @tipo = 2
         BEGIN
-            PRINT '=========================================='
-            PRINT 'AJUSTE ESPECIAL TIPO 2: FECHA PARA SP'
-            PRINT '=========================================='
-            
+            IF @Debug = 1
+            BEGIN
+                PRINT '=========================================='
+                PRINT 'AJUSTE ESPECIAL TIPO 2: FECHA PARA SP'
+                PRINT '=========================================='
+            END
+
             IF @EsUltimoDiaMes = 1
             BEGIN
                 -- Si es último día del mes, MANTENER fecha original
-                PRINT 'Es último día del mes: Se MANTIENE la FechaDesde ORIGINAL'
-                PRINT 'FechaDesde para SP: ' + @FechaDesde + ' (SIN CAMBIOS)'
+                IF @Debug = 1
+                BEGIN
+                    PRINT 'Es último día del mes: Se MANTIENE la FechaDesde ORIGINAL'
+                    PRINT 'FechaDesde para SP: ' + @FechaDesde + ' (SIN CAMBIOS)'
+                END
             END
             ELSE
             BEGIN
                 -- Si NO es último día del mes, usar primer día del mes ACTUAL
-                PRINT 'NO es último día del mes: Se usará el PRIMER DÍA del MES ACTUAL'
-                
+                IF @Debug = 1
+                    PRINT 'NO es último día del mes: Se usará el PRIMER DÍA del MES ACTUAL'
+
                 SET @PrimerDiaMes = CAST(
-                    CAST(@AnioReferencia AS VARCHAR(4)) + '-' + 
-                    RIGHT('0' + CAST(@MesReferencia AS VARCHAR(2)), 2) + '-01 00:00:00' 
+                    CAST(@AnioReferencia AS VARCHAR(4)) + '-' +
+                    RIGHT('0' + CAST(@MesReferencia AS VARCHAR(2)), 2) + '-01 00:00:00'
                     AS DATETIME
                 )
-                
-                SET @FechaDesde = 
+
+                SET @FechaDesde =
                     CONVERT(VARCHAR(4), YEAR(@PrimerDiaMes)) +
                     RIGHT('0' + CONVERT(VARCHAR(2), MONTH(@PrimerDiaMes)), 2) +
                     '010000'
-                
-                PRINT 'Mes actual: ' + CAST(@MesReferencia AS VARCHAR)
-                PRINT 'Año actual: ' + CAST(@AnioReferencia AS VARCHAR)
-                PRINT 'FechaDesde ajustada para SP: ' + @FechaDesde
-                PRINT 'Corresponde a: ' + CONVERT(VARCHAR(20), @PrimerDiaMes, 120)
+
+                IF @Debug = 1
+                BEGIN
+                    PRINT 'Mes actual: ' + CAST(@MesReferencia AS VARCHAR)
+                    PRINT 'Año actual: ' + CAST(@AnioReferencia AS VARCHAR)
+                    PRINT 'FechaDesde ajustada para SP: ' + @FechaDesde
+                    PRINT 'Corresponde a: ' + CONVERT(VARCHAR(20), @PrimerDiaMes, 120)
+                END
             END
-            PRINT ''
+            IF @Debug = 1 PRINT ''
         END
         
         -- =====================================================================
@@ -804,8 +882,11 @@ BEGIN
             -- ================================================================
             -- CÁLCULO EN DOS FASES (cuando no existe histórico del mes solicitado)
             -- ================================================================
-            PRINT '>>> EJECUTANDO CÁLCULO EN DOS FASES <<<'
-            PRINT '=========================================='
+            IF @Debug = 1
+            BEGIN
+                PRINT '>>> EJECUTANDO CÁLCULO EN DOS FASES <<<'
+                PRINT '=========================================='
+            END
 
             -- Calcular fecha de inicio: último día del mes del histórico disponible
             DECLARE @UltimoDiaHistorico DATETIME
@@ -820,11 +901,14 @@ BEGIN
             -- Fecha fin: la fecha solicitada por el usuario (FechaDesde original)
             SET @FechaFinCalculoSaldo = @FechaDesdeOriginal
 
-            PRINT 'FASE 1: Calculando saldo inicial'
-            PRINT '  Histórico disponible: ' + CAST(@MaxAnio AS VARCHAR) + '-' + RIGHT('0' + CAST(@MaxMes AS VARCHAR), 2)
-            PRINT '  Desde: ' + @FechaInicioCalculoSaldo + ' (último día histórico)'
-            PRINT '  Hasta: ' + @FechaFinCalculoSaldo + ' (fecha solicitada por usuario)'
-            PRINT ''
+            IF @Debug = 1
+            BEGIN
+                PRINT 'FASE 1: Calculando saldo inicial'
+                PRINT '  Histórico disponible: ' + CAST(@MaxAnio AS VARCHAR) + '-' + RIGHT('0' + CAST(@MaxMes AS VARCHAR), 2)
+                PRINT '  Desde: ' + @FechaInicioCalculoSaldo + ' (último día histórico)'
+                PRINT '  Hasta: ' + @FechaFinCalculoSaldo + ' (fecha solicitada por usuario)'
+                PRINT ''
+            END
 
             -- FASE 1: Calcular movimientos desde histórico hasta fecha solicitada
             INSERT INTO #TemporalKardexArticulo2
@@ -836,7 +920,8 @@ BEGIN
                 @iddeposito,
                 @tipo
 
-            PRINT 'FASE 1 completada. Registros obtenidos: ' + CAST(@@ROWCOUNT AS VARCHAR)
+            IF @Debug = 1
+                PRINT 'FASE 1 completada. Registros obtenidos: ' + CAST(@@ROWCOUNT AS VARCHAR)
 
             -- Consolidar para obtener saldo al momento de @FechaDesdeOriginal
             INSERT INTO #TemporalExistencias2
@@ -873,14 +958,15 @@ BEGIN
             FROM #TemporalKardexArticulo2
             GROUP BY idproducto, Codigoarticulo, descarticulo, NombreSucursal, NombreDeposito
 
-            PRINT 'Artículos con saldo inicial calculado: ' + CAST(@@ROWCOUNT AS VARCHAR)
-            PRINT ''
-
-            -- FASE 2: Calcular movimientos del período solicitado
-            PRINT 'FASE 2: Calculando movimientos del período'
-            PRINT '  Desde: ' + @FechaDesdeOriginal
-            PRINT '  Hasta: ' + @FechaHasta
-            PRINT ''
+            IF @Debug = 1
+            BEGIN
+                PRINT 'Artículos con saldo inicial calculado: ' + CAST(@@ROWCOUNT AS VARCHAR)
+                PRINT ''
+                PRINT 'FASE 2: Calculando movimientos del período'
+                PRINT '  Desde: ' + @FechaDesdeOriginal
+                PRINT '  Hasta: ' + @FechaHasta
+                PRINT ''
+            END
 
             INSERT INTO #TemporalKardexArticulo1
             EXEC sp_kardexAlmacenPM_Optimizado1
@@ -891,11 +977,12 @@ BEGIN
                 @iddeposito,
                 @tipo
 
-            PRINT 'FASE 2 completada. Movimientos encontrados: ' + CAST(@@ROWCOUNT AS VARCHAR)
-            PRINT ''
-
-            -- FASE 3: Combinar saldo inicial calculado con movimientos del período
-            PRINT 'FASE 3: Combinando saldo inicial con movimientos del período'
+            IF @Debug = 1
+            BEGIN
+                PRINT 'FASE 2 completada. Movimientos encontrados: ' + CAST(@@ROWCOUNT AS VARCHAR)
+                PRINT ''
+                PRINT 'FASE 3: Combinando saldo inicial con movimientos del período'
+            END
 
             INSERT INTO #TemporalExistencias3
             SELECT
@@ -962,8 +1049,11 @@ BEGIN
             ) e1
             FULL OUTER JOIN #TemporalExistencias2 e2 ON e1.idproducto = e2.idproducto
 
-            PRINT 'FASE 3 completada. Total artículos: ' + CAST(@@ROWCOUNT AS VARCHAR)
-            PRINT ''
+            IF @Debug = 1
+            BEGIN
+                PRINT 'FASE 3 completada. Total artículos: ' + CAST(@@ROWCOUNT AS VARCHAR)
+                PRINT ''
+            END
 
             -- Copiar resultado final a #TemporalExistencias1 para el resto del proceso
             INSERT INTO #TemporalExistencias1
@@ -989,13 +1079,16 @@ BEGIN
             -- ================================================================
             -- FLUJO NORMAL (cuando SÍ existe histórico)
             -- ================================================================
-            PRINT '>>> EJECUTANDO PROCEDIMIENTO ALMACENADO <<<'
-            PRINT '=========================================='
-            PRINT 'Parámetros:'
-            PRINT '  @FechaDesde: ' + @FechaDesde
-            PRINT '  @FechaHasta: ' + @FechaHasta
-            PRINT '  @tipo: ' + CAST(@tipo AS VARCHAR)
-            PRINT ''
+            IF @Debug = 1
+            BEGIN
+                PRINT '>>> EJECUTANDO PROCEDIMIENTO ALMACENADO <<<'
+                PRINT '=========================================='
+                PRINT 'Parámetros:'
+                PRINT '  @FechaDesde: ' + @FechaDesde
+                PRINT '  @FechaHasta: ' + @FechaHasta
+                PRINT '  @tipo: ' + CAST(@tipo AS VARCHAR)
+                PRINT ''
+            END
 
             -- Cargar datos
             INSERT INTO #TemporalKardexArticulo1
@@ -1270,16 +1363,40 @@ BEGIN
         END
     END
 
-drop table #TemporalKardexArticulo1
-drop table #TemporalKardexArticulo2
-drop table #TemporalExistencias1
-drop table #TemporalExistencias2
-drop table #TemporalKardexContable
-drop table #TemporalExistencias3
-drop table #codigosConRotacion
-drop table #codigosSinRotacion
-drop table #CodigosSinRotacionFechaMaxima
-drop table #FechasAjustadas
-drop table #existenciasfinal
+END TRY
+BEGIN CATCH
+    -- Capturar información del error
+    DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE()
+    DECLARE @ErrorSeverity INT = ERROR_SEVERITY()
+    DECLARE @ErrorState INT = ERROR_STATE()
+    DECLARE @ErrorLine INT = ERROR_LINE()
+    DECLARE @ErrorProcedure NVARCHAR(200) = ERROR_PROCEDURE()
+
+    -- Mostrar información del error (siempre, independiente de @Debug)
+    PRINT '=========================================='
+    PRINT 'ERROR EN PROCEDIMIENTO'
+    PRINT '=========================================='
+    PRINT 'Procedimiento: ' + ISNULL(@ErrorProcedure, 'N/A')
+    PRINT 'Línea: ' + CAST(@ErrorLine AS VARCHAR)
+    PRINT 'Mensaje: ' + @ErrorMessage
+    PRINT 'Severidad: ' + CAST(@ErrorSeverity AS VARCHAR)
+    PRINT 'Estado: ' + CAST(@ErrorState AS VARCHAR)
+
+    -- Re-lanzar el error
+    RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState)
+END CATCH
+
+-- Limpieza de tablas temporales (siempre se ejecuta)
+DROP TABLE IF EXISTS #TemporalKardexArticulo1
+DROP TABLE IF EXISTS #TemporalKardexArticulo2
+DROP TABLE IF EXISTS #TemporalExistencias1
+DROP TABLE IF EXISTS #TemporalExistencias2
+DROP TABLE IF EXISTS #TemporalKardexContable
+DROP TABLE IF EXISTS #TemporalExistencias3
+DROP TABLE IF EXISTS #codigosConRotacion
+DROP TABLE IF EXISTS #codigosSinRotacion
+DROP TABLE IF EXISTS #CodigosSinRotacionFechaMaxima
+DROP TABLE IF EXISTS #FechasAjustadas
+DROP TABLE IF EXISTS #existenciasfinal
 
 set fmtonly on

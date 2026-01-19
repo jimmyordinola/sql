@@ -1,4 +1,5 @@
 ﻿/****** Object:  StoredProcedure [dbo].[sp_kardexAlmacenPM]    Script Date: 7/01/2026 22:08:43 ******/
+-- Fix: Corregir cálculo de saldo inicial cuando FechaDesde es último día del mes sin histórico
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON

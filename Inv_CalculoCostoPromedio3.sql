@@ -57,7 +57,7 @@ WHERE
 	AND a.Cd_Prod = @Cd_Prod
 	AND a.Cd_UM = CASE @IB_KardexUM WHEN 0 THEN a.Cd_UM WHEN 1 THEN @Cd_UM END
 	AND CASE WHEN ISNULL(@Cd_Alm,'')= '' AND @IB_KardexAlm = 1 THEN '' ELSE a.Cd_Alm END = CASE @IB_KardexAlm WHEN 0 THEN ISNULL(a.Cd_Alm,'') WHEN 1 THEN ISNULL(@Cd_Alm,'') END
-	AND a.FechaMovimiento < @FecMov
+	AND a.FechaMovimiento <= @FecMov  -- CORREGIDO: Cambiado < por <= para incluir movimientos de la misma fecha/hora
 
 --SELECT @IMPORTES imp, @CANTIDADES cant
 SET @CostoPromedio = CASE WHEN @CANTIDADES = 0 THEN 0 ELSE (ISNULL(@IMPORTES / @CANTIDADES, 0.00)) END
@@ -82,4 +82,5 @@ END
 | Rafael Linares		| | 01/10/2024 | | Opcion para costos con valor 0, se jala de la ultima venta
 | Pedro Espinoza		| | 28/11/2024 | | (103099) Se valida si los importes y cantidades son nulos
 | Pedro Espinoza		| | 11/12/2024 | | (103245) Se incrementa los decimales a 38,20 para tener mayor espacio y evitar un desboramiento aritmético
+| FIX				| | 16/01/2026 | | BUGFIX CRÍTICO línea 60: Cambiado operador < por <= para incluir movimientos de la misma fecha/hora exacta. Esto corrige el error donde se calculaba costo incorrecto (ej: 3.991195 en lugar de 3.102090) causando saldos negativos. El operador < excluía movimientos del mismo momento, violando la lógica del costo promedio ponderado con IB_KardexAlm=1
 ***************************/

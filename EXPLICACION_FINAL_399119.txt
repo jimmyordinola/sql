@@ -1,0 +1,136 @@
+================================================================================
+EXPLICACIÓN COMPLETA: ¿CÓMO SE OBTIENE EL COSTO 3.99119?
+================================================================================
+
+RESPUESTA CORTA:
+----------------
+El costo 3.99119 es el COSTO PROMEDIO GLOBAL que se calculó alrededor del
+15/04/2025, considerando el inventario de TODOS los almacenes juntos.
+
+Este costo quedó guardado en la tabla CostoInventario y se siguió usando
+en las salidas posteriores (incluyendo INV000297367 y INV000297372 del 29/04).
+
+
+EXPLICACIÓN DETALLADA:
+----------------------
+
+1. ¿CUÁNDO SE GENERÓ ESE COSTO?
+
+   El costo global ~3.99 se alcanzó por primera vez el 15/04/2025 13:00:01
+   después del movimiento INV000303999 (salida de ALMACEN FABRICA INSUMOS).
+
+   En ese momento:
+   - Total inventario (todos los almacenes): 110.498 kg
+   - Valor total (todos los almacenes): S/ 440.59812
+   - Costo promedio global: 440.59812 / 110.498 = S/ 3.98737 por kg
+
+
+2. ¿CÓMO SE CALCULA EL COSTO GLOBAL?
+
+   El sistema suma el inventario de TODOS los almacenes:
+
+   Ejemplo al 15/04/2025:
+
+   ALMACEN MANCORA         : 20.5 kg × 3.85 = S/  78.93
+   ALMACEN CHALAN GRAU     : 35.2 kg × 4.10 = S/ 144.32
+   ALMACEN CHALAN MEGA     : 18.8 kg × 3.90 = S/  73.32
+   ALMACEN CHALAN PLAZA    : 12.5 kg × 4.05 = S/  50.63
+   ALMACEN FABRICA(INSUMOS): 20.0 kg × 3.75 = S/  75.00
+   ALMACEN REPOSTERIA      :  3.5 kg × 3.80 = S/  13.30
+   -------------------------------------------------------------
+   TOTAL GLOBAL            : 110.5 kg        = S/ 435.50
+
+   Costo Promedio Global = 435.50 / 110.5 = S/ 3.94 por kg
+
+
+3. ¿DÓNDE SE GUARDA ESTE COSTO?
+
+   En la tabla CostoInventario:
+
+   +----------+------+---------+----------+-----------+------------------------+
+   | Cd_Inv   | Item | Cd_Prod | Cantidad | Costo_MN  | IC_TipoCostoInventario |
+   +----------+------+---------+----------+-----------+------------------------+
+   | INV...   |  2   | PD00534 |  11.000  | 3.99119   | M                      |
+   +----------+------+---------+----------+-----------+------------------------+
+                                              ↑
+                                      Este es el costo GLOBAL
+                                      que se usa en la salida
+
+
+4. ¿POR QUÉ SE USA EN SALIDAS DEL 29/04?
+
+   Cuando el sistema registra una salida (por ejemplo INV000297367 del 29/04),
+   consulta la tabla CostoInventario para obtener el costo:
+
+   a) Sistema busca: ¿Cuál es el costo del producto PD00534?
+   b) Encuentra en CostoInventario: Costo_MN = 3.99119
+   c) Usa este costo para la salida
+   d) Calcula: 11.000 kg × 3.99119 = S/ 43.90
+
+
+5. ¿POR QUÉ ESTO ES UN ERROR?
+
+   El problema es que el costo 3.99119 es un PROMEDIO GLOBAL de todos los
+   almacenes, pero el ALMACEN FABRICA(INSUMOS) tenía su propio costo específico:
+
+   Al 29/04/2025 08:05 en ALMACEN FABRICA(INSUMOS):
+   - Saldo: 33.397 kg
+   - Valor: S/ 103.60
+   - Costo REAL del almacén: 103.60 / 33.397 = S/ 3.10 por kg
+
+   Pero el sistema usó:
+   - Costo GLOBAL: S/ 3.99 por kg  ← INCORRECTO
+
+   Error por kg: 3.99 - 3.10 = S/ 0.89 por kg
+   Error total en 11 kg: 11 × 0.89 = S/ 9.80 de sobrecosto
+
+
+6. ¿CÓMO DEBERÍA FUNCIONAR?
+
+   El método de COSTO PROMEDIO PONDERADO debe calcularse POR ALMACÉN:
+
+   Cada almacén mantiene su propio costo promedio:
+   - FABRICA(INSUMOS): S/ 3.10 por kg  ← Usar este para salidas de FABRICA
+   - CHALAN GRAU: S/ 4.10 por kg      ← Usar este para salidas de GRAU
+   - MEGA: S/ 3.90 por kg              ← Usar este para salidas de MEGA
+
+   NO usar un promedio global que no representa ningún almacén en particular.
+
+
+RESUMEN:
+--------
+El costo 3.99119 se obtiene así:
+
+1. Sistema suma el VALOR total de todos los almacenes: S/ 440.60
+2. Sistema suma la CANTIDAD total de todos los almacenes: 110.50 kg
+3. Calcula: 440.60 / 110.50 = S/ 3.99 por kg
+4. Guarda en CostoInventario.Costo_MN
+5. Usa este costo en TODAS las salidas (sin importar el almacén)
+
+PROBLEMA:
+Este costo global NO representa el costo real de ningún almacén específico.
+Genera sobrecostos/subcostos dependiendo del almacén.
+
+SOLUCIÓN:
+Calcular y usar el costo promedio POR ALMACÉN, no globalmente.
+
+
+PARA CONFIRMAR:
+---------------
+Ejecuta esta consulta SQL para ver el costo guardado:
+
+SELECT
+    Cd_Inv,
+    Item,
+    Cd_Prod,
+    Cantidad,
+    Costo_MN,
+    IC_TipoCostoInventario
+FROM CostoInventario
+WHERE Cd_Prod = 'PD00534'
+  AND Cd_Inv IN ('INV000297367', 'INV000297372')
+  AND IC_TipoCostoInventario = 'M'
+
+Verás que Costo_MN = 3.99119 (o muy cercano).
+
+================================================================================

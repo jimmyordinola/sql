@@ -347,10 +347,10 @@ FROM
       WHERE  
        id.RucE = @P_RUC_EMPRESA  
        and pumBase.ID_UMP_PRINCIPAL=@P_ID_UMP  
-       and id.Cd_Prod = @P_CODIGO_PRODUCTO  
-       and CASE WHEN @IB_KardexUM = 1 THEN pum.Cd_UM ELSE '1' END = CASE WHEN @IB_KardexUM = 1 THEN ISNULL(@Cd_UM,pum.Cd_UM) ELSE '1' END  
-       and CASE WHEN @IB_KardexAlm = 1 THEN id.Cd_Alm ELSE '1' END = CASE WHEN @IB_KardexAlm = 1 THEN ISNULL(@P_CODIGO_ALMACEN,id.Cd_Alm) ELSE '1' END  
-	   and id.FechaMovimiento < @P_FECHA_HASTA
+       and id.Cd_Prod = @P_CODIGO_PRODUCTO
+       and CASE WHEN @IB_KardexUM = 1 THEN pum.Cd_UM ELSE '1' END = CASE WHEN @IB_KardexUM = 1 THEN ISNULL(@Cd_UM,pum.Cd_UM) ELSE '1' END
+       and CASE WHEN @IB_KardexAlm = 1 THEN id.Cd_Alm ELSE '1' END = CASE WHEN @IB_KardexAlm = 1 THEN ISNULL(@P_CODIGO_ALMACEN,id.Cd_Alm) ELSE '1' END
+	   and id.FechaMovimiento <= @P_FECHA_HASTA  -- CORREGIDO: Cambiado < por <= para incluir movimientos de la misma fecha/hora
      ) as core  
    ) as core  
  ) AS core  
@@ -378,4 +378,7 @@ END
 --DJ: 30/04/2024 <Se corrigió el cálculo cuando @IB_VARIAS_UMP_PRINCIPAL esté activo. Se agregó el filtro 'id.FechaMovimiento < @P_FECHA_HASTA'>
 --RL: 03/10/2024 <Se versiono la funcion Inv_CalculoCostoPromedio3>
 | PE: 11/12/2024 <(103245) Se incrementa los decimales a 38,15 para tener mayor espacio y evitar un desboramiento aritmético>
+--FIX: 16/01/2026 <BUGFIX CRÍTICO línea 353: Cambiado operador < por <= para incluir movimientos de la misma fecha/hora exacta.
+                   Esto corrige el error donde se calculaba costo incorrecto (ej: 3.991195 en lugar de 3.102090) causando saldos negativos.
+                   El operador < excluía movimientos del mismo momento, violando la lógica del costo promedio ponderado con IB_KardexAlm=1>
 ***************************/

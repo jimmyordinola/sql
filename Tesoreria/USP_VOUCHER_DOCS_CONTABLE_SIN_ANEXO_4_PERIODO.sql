@@ -34,9 +34,21 @@ declare @L_CONSULTA1 varchar(max)
 declare @L_CONSULTA2 varchar(max)
 declare @L_CONSULTA3 varchar(max)
 
--- FILTRO DE PERIODOS HARDCODEADO
-DECLARE @PeriodoDesde VARCHAR(6) = '202504'
-DECLARE @PeriodoHasta VARCHAR(6) = '202509'
+-- FILTROS HARDCODEADOS POR TIPO DE DOCUMENTO Y PERIODO
+-- Boletas: Abril a Septiembre
+DECLARE @TipoDoc1 VARCHAR(2) = '03'
+DECLARE @PeriodoDesde1 VARCHAR(6) = '202504'
+DECLARE @PeriodoHasta1 VARCHAR(6) = '202509'
+
+-- Notas de Crédito: Octubre a Noviembre
+DECLARE @TipoDoc2 VARCHAR(2) = '07'
+DECLARE @PeriodoDesde2 VARCHAR(6) = '202510'
+DECLARE @PeriodoHasta2 VARCHAR(6) = '202511'
+
+-- Agregar más tipos si es necesario:
+-- DECLARE @TipoDoc3 VARCHAR(2) = '01'
+-- DECLARE @PeriodoDesde3 VARCHAR(6) = '202501'
+-- DECLARE @PeriodoHasta3 VARCHAR(6) = '202512'
 
 declare @L_OPC varchar(500)      
 declare @C_IB_AUTORIZA_VOUCHER  BIT     
@@ -173,7 +185,10 @@ select
  ISNULL(v.NroDoc,'''') != '''' and      
  ISNULL(v.Cd_TD,'''') != '''' and      
  isnull(v.IB_Anulado,0) <> 1 '+ @L_OPC + ' and
- (v.Ejer + v.Prdo) BETWEEN ''' + @PeriodoDesde + ''' AND ''' + @PeriodoHasta + ''' and
+ (
+   (v.Cd_TD = ''' + @TipoDoc1 + ''' AND (v.Ejer + v.Prdo) BETWEEN ''' + @PeriodoDesde1 + ''' AND ''' + @PeriodoHasta1 + ''')
+   OR (v.Cd_TD = ''' + @TipoDoc2 + ''' AND (v.Ejer + v.Prdo) BETWEEN ''' + @PeriodoDesde2 + ''' AND ''' + @PeriodoHasta2 + ''')
+ ) and
  LEN(ISNULL(v.Cd_Clt,'''') + ISNULL(v.Cd_Prv,'''') + ISNULL(v.Cd_Trab,'''')) > 0       
  ' + case       
        

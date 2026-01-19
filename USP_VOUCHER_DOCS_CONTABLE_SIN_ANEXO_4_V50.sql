@@ -29,11 +29,15 @@ AS
 --@P_NUMERACION VARCHAR(MAX) = null      
       
       
-declare @L_CONSULTA varchar(max)      
-declare @L_CONSULTA1 varchar(max)  
-declare @L_CONSULTA2 varchar(max)     
-declare @L_CONSULTA3 varchar(max)    
-  
+declare @L_CONSULTA varchar(max)
+declare @L_CONSULTA1 varchar(max)
+declare @L_CONSULTA2 varchar(max)
+declare @L_CONSULTA3 varchar(max)
+
+-- FILTRO DE PERIODOS HARDCODEADO
+DECLARE @PeriodoDesde VARCHAR(6) = '202504'
+DECLARE @PeriodoHasta VARCHAR(6) = '202509'
+
 declare @L_OPC varchar(500)      
 declare @C_IB_AUTORIZA_VOUCHER  BIT     
 declare @C_IB_AUTORIZA_VOUCHER_CGENERAL BIT  
@@ -168,7 +172,8 @@ select
  isnull(v.IB_Cndo,0) <> 1 and       
  ISNULL(v.NroDoc,'''') != '''' and      
  ISNULL(v.Cd_TD,'''') != '''' and      
- isnull(v.IB_Anulado,0) <> 1 '+ @L_OPC + ' and      
+ isnull(v.IB_Anulado,0) <> 1 '+ @L_OPC + ' and
+ (v.Ejer + v.Prdo) BETWEEN ''' + @PeriodoDesde + ''' AND ''' + @PeriodoHasta + ''' and
  LEN(ISNULL(v.Cd_Clt,'''') + ISNULL(v.Cd_Prv,'''') + ISNULL(v.Cd_Trab,'''')) > 0       
  ' + case       
        

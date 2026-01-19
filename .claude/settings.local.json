@@ -10,7 +10,14 @@
       "Bash(powershell -Command:*)",
       "Bash(del:*)",
       "Bash(ren:*)",
-      "Bash(git diff:*)"
+      "Bash(git diff:*)",
+      "Bash(iconv:*)",
+      "Bash(git -C \"d:\\\\nuvol\\\\sp\" checkout -- USP_VOUCHER_DOCS_CONTABLE_SIN_ANEXO_4.sql)",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"d:\\\\nuvol\\\\sp\\\\fix.ps1\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File:*)",
+      "Bash(dir:*)",
+      "Bash(python:*)",
+      "Bash(findstr:*)"
     ]
   }
 }
