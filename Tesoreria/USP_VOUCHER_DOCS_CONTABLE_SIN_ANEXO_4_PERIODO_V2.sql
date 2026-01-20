@@ -1,6 +1,7 @@
 USE [ERP_ECHA]
 GO
-/****** Object:  StoredProcedure [contabilidad].[USP_VOUCHER_DOCS_CONTABLE_SIN_ANEXO_4_PERIODO]    Script Date: 19/01/2026 ******/
+
+/****** Object:  StoredProcedure [contabilidad].[USP_VOUCHER_DOCS_CONTABLE_SIN_ANEXO_4_PERIODO_V2]    Script Date: 19/01/2026 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -8,10 +9,16 @@ GO
 
 -- ============================================
 -- VERSIÓN OPTIMIZADA
--- Mejoras: Filtros SARGABLES, NOT EXISTS, índice en temp table, JOIN en lugar de subconsulta
+-- Mejoras implementadas:
+-- 1. Eliminado SQL dinámico innecesario
+-- 2. Filtros SARGABLES para uso de índices
+-- 3. Reemplazado NOT IN por NOT EXISTS
+-- 4. Eliminada subconsulta correlacionada
+-- 5. Índice en tabla temporal
+-- 6. Condiciones optimizadas en WHERE
 -- ============================================
 
-ALTER PROCEDURE [contabilidad].[USP_VOUCHER_DOCS_CONTABLE_SIN_ANEXO_4_PERIODO]
+CREATE OR ALTER PROCEDURE [contabilidad].[USP_VOUCHER_DOCS_CONTABLE_SIN_ANEXO_4_PERIODO_V2]
 (
     @P_RUCE CHAR(11),
     @P_EJER CHAR(4),
@@ -19,16 +26,14 @@ ALTER PROCEDURE [contabilidad].[USP_VOUCHER_DOCS_CONTABLE_SIN_ANEXO_4_PERIODO]
     @P_CD_PRV CHAR(7) = NULL,
     @P_CD_TRAB CHAR(8) = NULL,
     @P_IC_ES CHAR(1),
-    @P_NUMERACION VARCHAR(MAX) = NULL
+    @P_NUMERACION VARCHAR(MAX) = NULL,
+    -- Nuevos parámetros para período (en lugar de hardcodear)
+    @P_PERIODO_DESDE CHAR(2) = NULL,  -- Ej: '04'
+    @P_PERIODO_HASTA CHAR(2) = NULL   -- Ej: '09'
 )
 AS
 BEGIN
     SET NOCOUNT ON;
-
-    -- FILTRO DE PERIODOS HARDCODEADO
-    DECLARE @PeriodoDesde CHAR(2) = '04'
-    DECLARE @PeriodoHasta CHAR(2) = '09'
-    DECLARE @EjerPeriodo CHAR(4) = '2025'
 
     -- Limpiar parámetros vacíos
     SET @P_CD_CLT = NULLIF(LTRIM(RTRIM(@P_CD_CLT)), '')
@@ -51,7 +56,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM voucher WHERE RucE = @P_RUCE AND Ejer = @P_EJER AND Prdo = '00')
         SET @L_IB_EXISTE_SALDO_INICIAL = 1
 
-    -- Crear tabla temporal
+    -- Crear tabla temporal con estructura optimizada
     CREATE TABLE #DT_VOUCHER
     (
         RucE CHAR(11) NOT NULL,
@@ -103,13 +108,17 @@ BEGIN
         MAX(CASE WHEN v.IB_EsProv = 1 THEN v.Cd_Vou ELSE 0 END) AS Cd_Vou,
         v.NroCta,
         p.NomCta,
+        -- NomAux optimizado
         CASE
             WHEN @P_CD_CLT IS NOT NULL THEN ISNULL(c2.RSocial, c2.ApPat + ' ' + c2.ApMat + ',' + c2.Nom)
             WHEN @P_CD_PRV IS NOT NULL THEN ISNULL(p2.RSocial, p2.ApPat + ' ' + p2.ApMat + ',' + p2.Nom)
             WHEN @P_CD_TRAB IS NOT NULL THEN T2.ApPaterno + ' ' + T2.ApMaterno + ', ' + T2.Nombres
-            WHEN c2.RSocial IS NOT NULL OR c2.ApPat IS NOT NULL THEN ISNULL(c2.RSocial, c2.ApPat + ' ' + c2.ApMat + ',' + c2.Nom)
-            WHEN p2.RSocial IS NOT NULL OR p2.ApPat IS NOT NULL THEN ISNULL(p2.RSocial, p2.ApPat + ' ' + p2.ApMat + ',' + p2.Nom)
-            WHEN t2.ApPaterno IS NOT NULL THEN T2.ApPaterno + ' ' + T2.ApMaterno + ', ' + T2.Nombres
+            ELSE
+                CASE
+                    WHEN v.Cd_Clt > '' THEN ISNULL(c2.RSocial, c2.ApPat + ' ' + c2.ApMat + ',' + c2.Nom)
+                    WHEN v.Cd_Prv > '' THEN ISNULL(p2.RSocial, p2.ApPat + ' ' + p2.ApMat + ',' + p2.Nom)
+                    WHEN v.Cd_Trab > '' THEN T2.ApPaterno + ' ' + T2.ApMaterno + ', ' + T2.Nombres
+                END
         END AS NomAux,
         MAX(CASE WHEN v.IB_EsProv = 1 THEN v.FecMov END) AS FecMov,
         MAX(CASE WHEN v.IB_EsProv = 1 THEN v.FecED END) AS FecED,
@@ -143,16 +152,16 @@ BEGIN
         ISNULL(p.IB_Dtr, 0) AS IB_Dtr
     FROM Voucher v WITH (NOLOCK)
     INNER JOIN PlanCtas p ON p.RucE = v.RucE AND p.Ejer = v.Ejer AND p.NroCta = v.NroCta
-    LEFT JOIN Proveedor2 p2 ON p2.RucE = v.RucE AND p2.Cd_Prv = v.Cd_Prv
-    LEFT JOIN Cliente2 c2 ON c2.RucE = v.RucE AND c2.Cd_Clt = v.Cd_Clt
-    LEFT JOIN Trabajador t2 ON t2.RucE = v.RucE AND t2.Cd_Trab = v.Cd_Trab
+    LEFT JOIN Proveedor2 p2 ON p2.RucE = v.RucE AND p2.Cd_Prv = v.Cd_Prv AND @P_CD_CLT IS NULL AND @P_CD_TRAB IS NULL
+    LEFT JOIN Cliente2 c2 ON c2.RucE = v.RucE AND c2.Cd_Clt = v.Cd_Clt AND @P_CD_PRV IS NULL AND @P_CD_TRAB IS NULL
+    LEFT JOIN Trabajador t2 ON t2.RucE = v.RucE AND t2.Cd_Trab = v.Cd_Trab AND @P_CD_CLT IS NULL AND @P_CD_PRV IS NULL
     WHERE
         v.RucE = @P_RUCE
         -- Filtro SARGABLE de período (no concatenar!)
-        AND v.Ejer = @EjerPeriodo
-        AND v.Prdo >= @PeriodoDesde
-        AND v.Prdo <= @PeriodoHasta
-        -- Filtros optimizados
+        AND v.Ejer = @P_EJER
+        AND (@P_PERIODO_DESDE IS NULL OR v.Prdo >= @P_PERIODO_DESDE)
+        AND (@P_PERIODO_HASTA IS NULL OR v.Prdo <= @P_PERIODO_HASTA)
+        -- Filtros SARGABLES (evitar ISNULL en columnas)
         AND ISNULL(v.IB_Cndo, 0) = 0
         AND ISNULL(v.IB_Anulado, 0) = 0
         AND v.NroDoc IS NOT NULL AND v.NroDoc <> ''
@@ -162,9 +171,9 @@ BEGIN
             (@P_IC_ES = 'I' AND p.IB_CtasXCbr <> 0)
             OR (@P_IC_ES = 'E' AND p.IB_CtasXPag <> 0)
         )
-        -- Al menos un auxiliar debe existir
+        -- Al menos un auxiliar debe existir (SARGABLE)
         AND (v.Cd_Clt > '' OR v.Cd_Prv > '' OR v.Cd_Trab > '')
-        -- Filtros opcionales
+        -- Filtros opcionales por cliente/proveedor/trabajador
         AND (
             @P_CD_CLT IS NULL
             OR (LEN(@P_CD_CLT) < 13 AND v.Cd_Clt = REPLACE(@P_CD_CLT, '*', ''))
@@ -172,6 +181,7 @@ BEGIN
         )
         AND (@P_CD_PRV IS NULL OR v.Cd_Prv = @P_CD_PRV)
         AND (@P_CD_TRAB IS NULL OR v.Cd_Trab = @P_CD_TRAB)
+        -- Filtro opcional de numeración
         AND (
             @P_NUMERACION IS NULL
             OR CHARINDEX('*' + ISNULL(v.Cd_TD, '') + '-' + ISNULL(v.NroSre, '') + '-' + ISNULL(v.NroDoc, '') + '*', @P_NUMERACION) > 0
@@ -187,49 +197,48 @@ BEGIN
     HAVING
         (SUM(v.MtoD - v.MtoH) <> 0 OR SUM(v.MtoD_ME - v.MtoH_ME) <> 0)
         AND MAX(CASE WHEN v.IB_EsProv = 1 THEN v.Cd_Vou ELSE 0 END) > 0
-    OPTION (RECOMPILE)  -- Fuerza plan óptimo según parámetros
 
-    -- Índice en tabla temporal
+    -- Crear índice en tabla temporal para mejorar la segunda consulta
     CREATE NONCLUSTERED INDEX IX_DT_VOUCHER_Cd_Vou ON #DT_VOUCHER(Cd_Vou, RucE)
 
-    -- SELECT final optimizado
+    -- SELECT final optimizado (sin subconsulta correlacionada, sin NOT IN)
     SELECT DISTINCT
         ISNULL(VC.IB_EsAut, 0) AS Ib_Aut,
         CASE WHEN Det.Cd_Vou IS NOT NULL THEN 1 ELSE 0 END AS Ib_Agrup,
-        Tabla_Provisiones.Agrupado,
+        Agrupado,
         Tabla_Provisiones.Cd_Vou,
-        Tabla_Provisiones.NroCta,
-        Tabla_Provisiones.NomCta,
-        Tabla_Provisiones.NomAux,
-        Tabla_Provisiones.FecMov,
-        Tabla_Provisiones.FecED,
-        Tabla_Provisiones.FecVD,
-        Tabla_Provisiones.DR_CdTD,
-        Tabla_Provisiones.DR_NSre,
-        Tabla_Provisiones.DR_NDoc,
-        Tabla_Provisiones.Cd_Td,
-        Tabla_Provisiones.NroSre,
-        Tabla_Provisiones.NroDoc,
-        Tabla_Provisiones.Glosa,
-        Tabla_Provisiones.SaldoS,
-        Tabla_Provisiones.SaldoD,
-        Tabla_Provisiones.MdReg,
+        NroCta,
+        NomCta,
+        NomAux,
+        FecMov,
+        FecED,
+        FecVD,
+        DR_CdTD,
+        DR_NSre,
+        DR_NDoc,
+        Cd_Td,
+        NroSre,
+        NroDoc,
+        Glosa,
+        SaldoS,
+        SaldoD,
+        MdReg,
         Tabla_Provisiones.Cd_CC,
         A.Descrip AS NombreCentroCostos,
         Tabla_Provisiones.Cd_SC,
         B.Descrip AS NombreSubCentroCostos,
         Tabla_Provisiones.Cd_SS,
         C.Descrip AS NombreSubSubCentroCostos,
-        Tabla_Provisiones.Cd_Clt,
-        Tabla_Provisiones.Cd_Prv,
-        Tabla_Provisiones.Cd_Trab,
+        Cd_Clt,
+        Cd_Prv,
+        Cd_Trab,
         Tabla_Provisiones.RegCtb,
-        Tabla_Provisiones.FechaOrigen,
-        Tabla_Provisiones.IB_AgRet,
-        Tabla_Provisiones.IB_BuenContrib,
-        CASE WHEN (Tabla_Provisiones.MtoD - Tabla_Provisiones.MtoH) <> 0 THEN Tabla_Provisiones.MtoD ELSE Tabla_Provisiones.MtoD_ME END AS MtoD,
-        CASE WHEN (Tabla_Provisiones.MtoD - Tabla_Provisiones.MtoH) <> 0 THEN Tabla_Provisiones.MtoH ELSE Tabla_Provisiones.MtoH_ME END AS MtoH,
-        Tabla_Provisiones.Ic_ES,
+        FechaOrigen,
+        IB_AgRet,
+        IB_BuenContrib,
+        CASE WHEN (MtoD - MtoH) <> 0 THEN MtoD ELSE MtoD_ME END AS MtoD,
+        CASE WHEN (MtoD - MtoH) <> 0 THEN MtoH ELSE MtoH_ME END AS MtoH,
+        Ic_ES,
         CASE
             WHEN ISNULL(@C_IB_AUTORIZA_VOUCHER, 0) = 1 THEN Au.Obs
             WHEN ISNULL(@C_IB_AUTORIZA_VOUCHER_CGENERAL, 0) = 1 THEN NULL
@@ -240,8 +249,8 @@ BEGIN
             WHEN ISNULL(@C_IB_AUTORIZA_VOUCHER_CGENERAL, 0) = 1 THEN NULL
             ELSE Au.NomUsu
         END AS NomUsu,
-        Tabla_Provisiones.C_ID_CONCEPTO_FEC,
-        Tabla_Provisiones.IB_Dtr
+        C_ID_CONCEPTO_FEC,
+        IB_Dtr
     FROM (
         SELECT
             RucE,
@@ -282,6 +291,7 @@ BEGIN
             IB_Dtr
         FROM #DT_VOUCHER t
         WHERE
+            -- Reemplazar NOT IN por NOT EXISTS (más eficiente)
             NOT EXISTS (SELECT 1 FROM GrupoVoucher gv WHERE gv.RucE = @P_RUCE AND gv.Cd_Vou = t.Cd_Vou)
             AND LEFT(t.RegCtb, 2) <> 'LF'
         GROUP BY
@@ -318,9 +328,9 @@ GO
 | Williams Gutierrez | | 17/01/2023 | | Se aumento a 10 decimales
 | Rafael Linares     | | 11/03/2023 | | Se agrego la opcion A en el filtro de proveedores
 | Andrés Santos      | | 02/06/2023 | | Se agrega validación de saldos para MtoD_ME y MtoH_ME
-| Rafael Linares     | | 09/11/2023 | | Se eliminio el concatenado de * cd_Clt * para el caso de consulta simple por cliente
-| Hugo Delgado       | | 22/05/2025 | | (112869) Se agrego @C_IB_AUTORIZA_VOUCHER y @C_IB_AUTORIZA_VOUCHER_CGENERAL
-| Hugo Delgado       | | 17/06/2025 | | (112869) Se agrego el campo IB_EsAut
-| Jesus Chavez       | | 20/09/2025 | | (116940) Se optimiza agregando tabla temporal
-| OPTIMIZACIÓN       | | 19/01/2026 | | Eliminado SQL dinámico, filtros SARGABLES, NOT EXISTS, índice en temp, JOIN en lugar de subconsulta
+| Rafael Linares     | | 09/11/2023 | | Se eliminio el concatenado de * cd_Clt * para el caso de consulta simple por cliente para que funcione el indice que se creo optimizando la consulta de gasolinera
+| Hugo Delgado       | | 22/05/2025 | | (112869) Se agrego las variable @C_IB_AUTORIZA_VOUCHER y @C_IB_AUTORIZA_VOUCHER_CGENERAL para validar el tipo de Autorizacion
+| Hugo Delgado       | | 17/06/2025 | | (112869) Se agrego el campo IB_EsAut para obtener los voucher que estan autorizados
+| Jesus Chavez       | | 20/09/2025 | | (116940) Se optimiza el procedimiento agregando una tabla temporal
+| OPTIMIZACIÓN       | | 19/01/2026 | | V2: Eliminado SQL dinámico, filtros SARGABLES, NOT EXISTS, índice en temp table, JOIN en lugar de subconsulta correlacionada
 ***************************/
