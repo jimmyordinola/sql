@@ -138,32 +138,55 @@ WHERE d.Segundos > 1;  -- Solo actualiza del segundo en adelante
     BEGIN
         -- Obtener último precio promedio directamente desde CuerpoMovimiento
         -- (que ya tiene los valores actualizados de iteraciones anteriores)
+        -- Buscar último precio promedio GLOBAL del artículo (sin filtrar por depósito)
+        -- Esto es correcto porque el costo promedio es por ARTICULO, no por ubicación física
+        -- Las transferencias entre depósitos no deben afectar el costo del artículo
         IF @TipoActualizacion = 'MONEDA'
         BEGIN
             SELECT @UltimoPromedio = COALESCE((
+                -- Primero buscar en movimientos ya cargados (más rápido)
                 SELECT TOP 1 cm.PrecioPromedioMoneda
                 FROM #MovimientosBase mb
                 INNER JOIN CuerpoMovimiento cm ON cm.IdCuerpoMovimiento = mb.IdCuerpoMovimiento
-                WHERE mb.IdSucursal = @IdSucursal 
-                  AND mb.IdDeposito = @IdDeposito
-                  AND mb.FechaContable < @FechaContable
+                WHERE mb.FechaContable < @FechaContable
                   AND cm.PrecioPromedioMoneda IS NOT NULL
                   AND cm.PrecioPromedioMoneda > 0
                 ORDER BY mb.FechaContable DESC
+            ), (
+                -- Si no hay en #MovimientosBase, buscar en histórico completo
+                SELECT TOP 1 cm.PrecioPromedioMoneda
+                FROM CuerpoMovimiento cm
+                INNER JOIN Movimiento mov ON mov.IdMovimiento = cm.IdMovimiento
+                WHERE cm.IdArticulo = @IdArticulo
+                  AND mov.FechaContable < @FechaContable
+                  AND mov.Estado <> 'ANU'
+                  AND cm.PrecioPromedioMoneda IS NOT NULL
+                  AND cm.PrecioPromedioMoneda > 0
+                ORDER BY mov.FechaContable DESC
             ), 0);
         END
         ELSE
         BEGIN
             SELECT @UltimoPromedio = COALESCE((
+                -- Primero buscar en movimientos ya cargados (más rápido)
                 SELECT TOP 1 cm.PrecioPromedio
                 FROM #MovimientosBase mb
                 INNER JOIN CuerpoMovimiento cm ON cm.IdCuerpoMovimiento = mb.IdCuerpoMovimiento
-                WHERE mb.IdSucursal = @IdSucursal 
-                  AND mb.IdDeposito = @IdDeposito
-                  AND mb.FechaContable < @FechaContable
+                WHERE mb.FechaContable < @FechaContable
                   AND cm.PrecioPromedio IS NOT NULL
                   AND cm.PrecioPromedio > 0
                 ORDER BY mb.FechaContable DESC
+            ), (
+                -- Si no hay en #MovimientosBase, buscar en histórico completo
+                SELECT TOP 1 cm.PrecioPromedio
+                FROM CuerpoMovimiento cm
+                INNER JOIN Movimiento mov ON mov.IdMovimiento = cm.IdMovimiento
+                WHERE cm.IdArticulo = @IdArticulo
+                  AND mov.FechaContable < @FechaContable
+                  AND mov.Estado <> 'ANU'
+                  AND cm.PrecioPromedio IS NOT NULL
+                  AND cm.PrecioPromedio > 0
+                ORDER BY mov.FechaContable DESC
             ), 0);
         END
         
